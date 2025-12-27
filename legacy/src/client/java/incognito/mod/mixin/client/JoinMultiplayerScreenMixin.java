@@ -41,6 +41,15 @@ public abstract class JoinMultiplayerScreenMixin extends Screen {
     @Unique
     private int incognito$dragOffsetY = 0;
     
+    @Unique
+    private int incognito$buttonXOffset = 0;  // X offset from right edge
+    
+    @Unique
+    private int incognito$buttonYOffset = 0;  // Y offset (from top or bottom)
+    
+    @Unique
+    private boolean incognito$isInFooter = false;  // true = footer, false = header
+    
     protected JoinMultiplayerScreenMixin(Component title) {
         super(title);
     }
@@ -49,12 +58,34 @@ public abstract class JoinMultiplayerScreenMixin extends Screen {
     private void incognito$addSettingsButton(CallbackInfo ci) {
         // Load saved position or use default (top-left with padding)
         int[] savedPos = IncognitoConfig.getInstance().getSettings().getButtonPosition();
-        int buttonX = savedPos != null ? savedPos[0] : 5;
-        int buttonY = savedPos != null ? savedPos[1] : 5;
         
-        // Clamp to screen bounds
-        buttonX = Math.max(0, Math.min(buttonX, this.width - 70));
-        buttonY = Math.max(0, Math.min(buttonY, this.height - 20));
+        if (savedPos == null) {
+            incognito$buttonXOffset = this.width - 5;  // Default to top-left (far from right edge)
+            incognito$buttonYOffset = 5;
+            incognito$isInFooter = false;
+        } else {
+            int savedX = savedPos[0];
+            int savedY = savedPos[1];
+            
+            // X is always relative to right edge
+            incognito$buttonXOffset = this.width - savedX;
+            
+            // Y uses header/footer zones
+            int footerTopY = this.height - FOOTER_HEIGHT;
+            int middleY = (HEADER_HEIGHT + footerTopY) / 2;
+            
+            if (savedY >= middleY) {
+                incognito$isInFooter = true;
+                incognito$buttonYOffset = this.height - savedY;
+            } else {
+                incognito$isInFooter = false;
+                incognito$buttonYOffset = savedY;
+            }
+        }
+        
+        // Calculate actual button position
+        int buttonX = incognito$calculateButtonX();
+        int buttonY = incognito$calculateButtonY();
         
         incognito$button = Button.builder(
             Component.literal("Incognito"),
@@ -68,6 +99,58 @@ public abstract class JoinMultiplayerScreenMixin extends Screen {
         incognito$button.setTooltip(Tooltip.create(Component.literal("§eLeft-click: §fOpen settings\n§eRight-drag: §fMove button")));
         
         this.addRenderableWidget(incognito$button);
+    }
+    
+    @Override
+    public void resize(net.minecraft.client.Minecraft minecraft, int width, int height) {
+        int savedXOffset = incognito$buttonXOffset;
+        int savedYOffset = incognito$buttonYOffset;
+        boolean savedIsInFooter = incognito$isInFooter;
+        
+        super.resize(minecraft, width, height);
+        
+        incognito$buttonXOffset = savedXOffset;
+        incognito$buttonYOffset = savedYOffset;
+        incognito$isInFooter = savedIsInFooter;
+        
+        if (incognito$button != null) {
+            int finalX = incognito$calculateButtonX();
+            int finalY = incognito$calculateButtonY();
+            
+            incognito$button.setX(finalX);
+            incognito$button.setY(finalY);
+        }
+    }
+    
+    /**
+     * Calculates the button Y position based on zone and offset.
+     * Header: offset from top
+     * Footer: offset from bottom
+     */
+    @Unique
+    private int incognito$calculateButtonY() {
+        int buttonHeight = 20;
+        
+        if (incognito$isInFooter) {
+            // Footer zone - calculate from bottom
+            int footerContentTopY = this.height - 58;
+            int footerContentBottomY = this.height - 8;
+            int targetY = this.height - incognito$buttonYOffset;
+            // Clamp within footer content area
+            return Math.max(footerContentTopY, Math.min(targetY, footerContentBottomY - buttonHeight));
+        } else {
+            // Header zone - offset from top
+            int targetY = incognito$buttonYOffset;
+            // Clamp within header area
+            return Math.max(0, Math.min(targetY, HEADER_HEIGHT - buttonHeight));
+        }
+    }
+    
+    @Unique
+    private int incognito$calculateButtonX() {
+        int buttonWidth = 70;
+        int targetX = this.width - incognito$buttonXOffset;
+        return Math.max(0, Math.min(targetX, this.width - buttonWidth));
     }
     
     // Handle right-click drag at the screen level (1.21.1-1.21.5 API)
@@ -87,11 +170,26 @@ public abstract class JoinMultiplayerScreenMixin extends Screen {
         if (button == 1 && incognito$dragging) {
             incognito$dragging = false;
             if (incognito$button != null) {
-                // Snap to header or footer to avoid covering server list
                 int snappedY = incognito$snapToHeaderOrFooter(incognito$button.getY());
                 incognito$button.setY(snappedY);
                 
-                IncognitoConfig.getInstance().getSettings().setButtonPosition(incognito$button.getX(), snappedY);
+                int clampedX = Math.max(0, Math.min(incognito$button.getX(), this.width - incognito$button.getWidth()));
+                incognito$button.setX(clampedX);
+                
+                int footerTopY = this.height - FOOTER_HEIGHT;
+                int middleY = (HEADER_HEIGHT + footerTopY) / 2;
+                
+                if (snappedY >= middleY) {
+                    incognito$isInFooter = true;
+                    incognito$buttonYOffset = this.height - snappedY;
+                } else {
+                    incognito$isInFooter = false;
+                    incognito$buttonYOffset = snappedY;
+                }
+                
+                incognito$buttonXOffset = this.width - clampedX;
+                
+                IncognitoConfig.getInstance().getSettings().setButtonPosition(clampedX, snappedY);
                 IncognitoConfig.getInstance().save();
             }
             return true;
@@ -107,18 +205,23 @@ public abstract class JoinMultiplayerScreenMixin extends Screen {
     @Unique
     private int incognito$snapToHeaderOrFooter(int currentY) {
         int buttonHeight = incognito$button != null ? incognito$button.getHeight() : 20;
-        int footerTopY = this.height - FOOTER_HEIGHT;
+        // Footer content area (where the actual buttons are)
+        int footerContentTopY = this.height - 58;  // Align with top of footer button area
+        int footerContentBottomY = this.height - 8;  // Small padding from bottom edge
+        
+        // Footer zone for determining which area to snap to
+        int footerZoneTopY = this.height - FOOTER_HEIGHT;
         
         // Calculate center of screen (middle of server list area)
-        int middleY = (HEADER_HEIGHT + footerTopY) / 2;
+        int middleY = (HEADER_HEIGHT + footerZoneTopY) / 2;
         
         // Snap to whichever zone is closer, but allow movement within that zone
         if (currentY < middleY) {
             // Closer to header - clamp within header area
             return Math.max(0, Math.min(currentY, HEADER_HEIGHT - buttonHeight));
         } else {
-            // Closer to footer - clamp within footer area
-            return Math.max(footerTopY, Math.min(currentY, this.height - buttonHeight));
+            // Closer to footer - clamp within footer content area
+            return Math.max(footerContentTopY, Math.min(currentY, footerContentBottomY - buttonHeight));
         }
     }
         

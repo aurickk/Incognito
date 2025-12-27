@@ -7,6 +7,10 @@ import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.regex.Pattern;
 
+/**
+ * Detects URLs pointing to local/private network addresses.
+ * Used to prevent port scanning and local service probing attacks via resource packs.
+ */
 public class LocalUrlDetector {
     
     private static final Pattern PRIVATE_IPV4 = Pattern.compile(

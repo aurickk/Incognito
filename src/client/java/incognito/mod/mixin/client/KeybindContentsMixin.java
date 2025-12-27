@@ -49,16 +49,13 @@ public class KeybindContentsMixin {
         require = 0
     )
     private Object incognito$spoofKeybindName(Supplier<?> supplier, Operation<Object> original) {
-        // Get the original resolved value
         Object originalResult = original.call(supplier);
         String originalValue = originalResult instanceof Component c ? c.getString() : originalResult.toString();
         
         boolean protectionEnabled = IncognitoConfig.getInstance().isTranslationProtectionEnabled();
         
-        // Ensure we've scanned runtime keybinds (captures mods like Meteor Client)
         scanRuntimeKeybindsIfNeeded();
         
-        // Check if this is a keybind we should handle
         boolean isVanilla = KeybindDefaults.hasDefault(name) || ModTracker.isVanillaKeybind(name);
         boolean isKnownModKeybind = !isVanilla && ModTracker.isKnownKeybind(name);
         
@@ -107,7 +104,6 @@ public class KeybindContentsMixin {
     private void handleExploitDetected(String originalValue, String spoofedValue, boolean valueWouldChange, boolean protectionEnabled) {
         String alertEntry;
         if (spoofedValue == null) {
-            // Unknown key - not a registered keybind
             alertEntry = "[" + name + "] '" + originalValue + "' (unknown key)";
         } else if (valueWouldChange) {
             if (protectionEnabled) {
@@ -119,7 +115,6 @@ public class KeybindContentsMixin {
             alertEntry = "[" + name + "] '" + originalValue + "' (unchanged)";
         }
         
-        // Use unified detector for source detection
         PrivacyLogger.ExploitSource source = ExploitDetector.detectSource();
         boolean playerInitiated = ExploitDetector.wasPlayerInitiated(source);
         
@@ -136,18 +131,15 @@ public class KeybindContentsMixin {
             batchSource = source;
         }
         
-        // Deduplicate alerts
         if (!ExploitDetector.shouldAlert(alertEntry)) {
             return;
         }
         
-        // Log to console
         String initiator = playerInitiated ? "player" : "server";
         String action = protectionEnabled && valueWouldChange ? "Spoofed" : "Detected";
         Incognito.LOGGER.info("[Keybind] {} ({}-initiated {}): {}", 
             action, initiator, source.getDisplayName().toLowerCase(), alertEntry);
         
-        // Log detection
         PrivacyLogger.logDetection("TranslationExploit:" + source.getDisplayName(), alertEntry);
         
         if (!playerInitiated && ExploitDetector.shouldSendHeaderAlert()) {
@@ -192,12 +184,10 @@ public class KeybindContentsMixin {
                 String keyName = mapping.getName();
                 if (keyName == null) continue;
                 
-                // Skip if already known
                 if (KeybindDefaults.hasDefault(keyName) || ModTracker.isKnownKeybind(keyName)) {
                     continue;
                 }
                 
-                // Register as a mod keybind (we don't know which mod, so use "unknown")
                 ModTracker.recordKeybind("runtime", keyName);
                 newKeybinds++;
             }

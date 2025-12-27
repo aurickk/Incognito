@@ -10,7 +10,7 @@
   "incognito.option.spoofChannels": "Spoof Channels",
   
   "incognito.option.isolatePackCache": "Isolate Pack Cache",
-  "incognito.option.spoofLocalPackUrls": "Spoof Local URLs",
+  "incognito.option.blockLocalPackUrls": "Block Local URLs",
   "incognito.option.clearCache": "Clear Cached Resource Packs",
   "incognito.option.blockTranslationExploit": "Translation Protection",
   "incognito.option.translationExploitMode": "Protection Mode",

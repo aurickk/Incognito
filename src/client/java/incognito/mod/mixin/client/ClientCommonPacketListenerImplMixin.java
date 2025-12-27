@@ -20,7 +20,7 @@ import java.util.UUID;
 /**
  * Mixin to intercept resource pack requests.
  * 
- * LOCAL URL SPOOFING:
+ * LOCAL URL BLOCKING:
  * Instead of intercepting packets and sending manual FAILED_DOWNLOAD responses (which causes
  * texture reloads), we redirect local URLs to a guaranteed-to-fail address (0.0.0.0:0).
  * This makes Minecraft's normal download flow fail at the HTTP level, exactly like vanilla
@@ -48,10 +48,10 @@ public abstract class ClientCommonPacketListenerImplMixin {
     private static final String FAIL_URL = "http://0.0.0.0:0/incognito-blocked";
     
     /**
-     * Count of spoofed local URLs for logging.
+     * Count of blocked local URLs for logging.
      */
     @Unique
-    private static int incognito$localUrlSpoofCount = 0;
+    private static int incognito$localUrlBlockCount = 0;
     
     /**
      * Redirect the URL from the packet for local URLs (only when protection is enabled).
@@ -65,16 +65,13 @@ public abstract class ClientCommonPacketListenerImplMixin {
     private String incognito$redirectLocalUrl(ClientboundResourcePackPushPacket packet) {
         String originalUrl = packet.url();
         
-        // Only redirect if protection is enabled
-        if (IncognitoConfig.getInstance().shouldSpoofLocalPackUrls() && ServerAddressTracker.shouldBlockLocalUrl(originalUrl)) {
-            incognito$localUrlSpoofCount++;
+        if (IncognitoConfig.getInstance().shouldBlockLocalPackUrls() && ServerAddressTracker.shouldBlockLocalUrl(originalUrl)) {
+            incognito$localUrlBlockCount++;
             String reason = LocalUrlDetector.getBlockReason(originalUrl);
             
-            // Log the EXACT original URL from the server packet (before any parsing)
             Incognito.LOGGER.info("[Incognito] Blocking local port scan #{}: ORIGINAL URL = \"{}\" (reason: {})", 
-                incognito$localUrlSpoofCount, originalUrl, reason);
+                incognito$localUrlBlockCount, originalUrl, reason);
             
-            // Return the fail URL - Minecraft will try to download from this and fail naturally
             return FAIL_URL;
         }
         
@@ -93,41 +90,28 @@ public abstract class ClientCommonPacketListenerImplMixin {
         UUID packId = packet.id();
         
         boolean isLocalUrlProbe = ServerAddressTracker.shouldBlockLocalUrl(url);
-        boolean protectionEnabled = IncognitoConfig.getInstance().shouldSpoofLocalPackUrls();
+        boolean protectionEnabled = IncognitoConfig.getInstance().shouldBlockLocalPackUrls();
         
-        // ALWAYS detect and alert for local URL probes, regardless of protection setting
         if (isLocalUrlProbe) {
-            // Alert with protection status (blocked vs just detected)
             PrivacyLogger.alertLocalPortScanDetected(url, protectionEnabled);
-            
-            // Record for detection purposes
             TrackPackDetector.recordRequest(url, packet.hash());
             
-            // If protection is enabled, the @Redirect will handle the URL substitution
-            // We don't cancel here - let the packet flow through
             if (protectionEnabled) {
-                return; // Let @Redirect handle it
+                return;
             }
-            // If protection is off, continue with normal flow but we've alerted
         }
         
-        // Record the request for detection/logging
         boolean suspicious = TrackPackDetector.recordRequest(url, packet.hash());
         
-        // Alert if suspicious (for logging purposes)
         if (suspicious && TrackPackDetector.consumeNotifySuspiciousOnce()) {
             PrivacyLogger.alertTrackPackDetected(url);
         }
         
-        // Check for fingerprinting pattern
         if (TrackPackDetector.isFingerprinting() && TrackPackDetector.consumeNotifyPatternOnce()) {
             PrivacyLogger.alert(PrivacyLogger.AlertType.DANGER,
                 "Resource pack fingerprinting pattern detected!");
             PrivacyLogger.toast(PrivacyLogger.AlertType.DANGER, "Resource Pack Fingerprinting Detected");
         }
-        
-        // Note: Fake pack accept feature is not yet implemented in current config
-        // If needed, add shouldFakePackAccept() to IncognitoConfig and SpoofSettings
     }
     
 }

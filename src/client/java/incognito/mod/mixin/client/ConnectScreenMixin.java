@@ -8,11 +8,14 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+/**
+ * Resets detection state when connecting to a new server.
+ */
 @Mixin(ConnectScreen.class)
 public class ConnectScreenMixin {
     
     @Inject(method = "startConnecting", at = @At("HEAD"))
-    private static void onConnect(CallbackInfo ci) {
+    private static void incognito$resetState(CallbackInfo ci) {
         TrackPackDetector.reset();
         ResourcePackGuard.onServerJoin();
     }

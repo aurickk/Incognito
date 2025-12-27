@@ -5,6 +5,11 @@ import incognito.mod.PrivacyLogger;
 import incognito.mod.config.IncognitoConfig;
 import net.minecraft.resources.ResourceLocation;
 
+/**
+ * Handles client brand spoofing and channel filtering logic.
+ * Provides methods to check spoofing modes (vanilla, fabric, forge)
+ * and determines which network channels should be blocked.
+ */
 public class ClientSpoofer {
     
     private static boolean loggedBrandSpoof = false;

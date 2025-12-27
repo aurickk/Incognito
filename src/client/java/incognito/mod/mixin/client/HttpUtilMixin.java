@@ -45,7 +45,7 @@ public class HttpUtilMixin {
             @Local(argsOnly = true) Map<String, String> requestProperties,
             @Local LocalRef<HttpURLConnection> httpURLConnection) throws IOException {
         
-        if (!IncognitoConfig.getInstance().shouldSpoofLocalPackUrls()) {
+        if (!IncognitoConfig.getInstance().shouldBlockLocalPackUrls()) {
             return original.call(instance);
         }
         

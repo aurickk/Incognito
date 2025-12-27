@@ -14,6 +14,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Manages privacy-related alerts, toasts, and logging for exploit detection.
+ * Provides methods to notify users of detected tracking attempts and security events.
+ */
 public class PrivacyLogger {
     private static final ConcurrentHashMap<String, Long> toastCooldowns = new ConcurrentHashMap<>();
     
@@ -101,7 +105,6 @@ public class PrivacyLogger {
             if (toastComponent == null) return;
             
             Component titleComponent = Component.literal(type.getIcon() + " " + title).withStyle(type.getColor());
-            // Only add message component if message is provided
             Component messageComponent = (message != null && !message.isEmpty()) 
                 ? Component.literal(message).withStyle(ChatFormatting.GRAY) 
                 : null;

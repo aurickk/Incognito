@@ -8,6 +8,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+/**
+ * Intercepts telemetry settings to block data collection when configured.
+ */
 @Mixin(Minecraft.class)
 public class MinecraftMixin {
     @Inject(method = "allowsTelemetry", at = @At("HEAD"), cancellable = true)

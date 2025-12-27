@@ -53,8 +53,8 @@ public class FabricConfigNetworkingMixin {
     private static void filterChannelSet(CallbackInfoReturnable<Set<ResourceLocation>> cir, String methodName) {
         IncognitoConfig config = IncognitoConfig.getInstance();
         
-        // Only filter/lie about channels when channel spoofing is enabled.
-        // Brand-only spoofing should not touch channels.
+        // Only filter channels when channel spoofing is enabled.
+        // Brand-only mode should not modify channels.
         if (!config.shouldSpoofBrand() || !config.shouldSpoofChannels()) {
             return;
         }
@@ -96,11 +96,9 @@ public class FabricConfigNetworkingMixin {
     @Unique
     private static boolean incognito$isAllowedFabricChannel(ResourceLocation id) {
         String ns = id.getNamespace();
-        // Allow minecraft (for game functionality)
         if ("minecraft".equals(ns)) {
             return true;
         }
-        // Allow fabric namespaces
         return "fabric".equals(ns) || ns.startsWith("fabric-");
     }
 }

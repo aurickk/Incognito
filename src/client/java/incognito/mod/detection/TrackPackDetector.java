@@ -15,6 +15,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
+/**
+ * Detects fingerprinting attempts through resource pack requests.
+ * Analyzes patterns such as rapid requests, hash probing, and suspicious URLs
+ * to identify servers attempting to track or fingerprint clients.
+ */
 public class TrackPackDetector {
     
     private static final Pattern[] SUSPICIOUS_URL_PATTERNS = {

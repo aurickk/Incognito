@@ -24,7 +24,6 @@ public class ClientBrandRetrieverMixin {
         if (config.shouldSpoofBrand()) {
             String spoofedBrand = config.getSettings().getEffectiveBrand();
             
-            // Only log once to avoid spam
             if (!incognito$logged) {
                 incognito$logged = true;
                 Incognito.LOGGER.info("[Incognito] ClientBrandRetriever active - spoofing brand as: {}", spoofedBrand);

@@ -10,6 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 
+/**
+ * Manages resource pack cache and provides utilities for cache clearing.
+ * Delegates suspicious URL detection to TrackPackDetector.
+ */
 public class ResourcePackGuard {
     
     public static boolean isSuspiciousUrl(String url) {

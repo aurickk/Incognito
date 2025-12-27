@@ -2,6 +2,7 @@ package incognito.mod.mixin.client;
 
 import incognito.mod.Incognito;
 import incognito.mod.config.IncognitoConfig;
+import incognito.mod.util.ServerAddressTracker;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
@@ -27,20 +28,30 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Mixin to intercept and filter outgoing custom payloads.
- * 
- * Key behaviors:
- * - VANILLA MODE: Block ALL custom payloads (no channels at all)
- * - FABRIC MODE: Intercept minecraft:register packets and rebuild them with ONLY fabric channels.
- *   This makes the client appear as a clean Fabric client with no third-party mods.
- * - FORGE MODE: Register only forge:login and forge:handshake channels.
- *   This makes the client appear as a clean Forge client.
+ * Intercepts and filters outgoing custom payloads for brand spoofing and channel filtering.
+ * Also tracks server address for LAN detection.
  */
 @Mixin(Connection.class)
 public class ClientConnectionMixin {
     
     @Shadow
     private Channel channel;
+    
+    @Inject(method = "channelActive", at = @At("HEAD"), require = 0)
+    private void incognito$onChannelActive(ChannelHandlerContext context, CallbackInfo ci) {
+        try {
+            if (context.channel() != null && context.channel().remoteAddress() != null) {
+                ServerAddressTracker.onConnect(context.channel().remoteAddress());
+            }
+        } catch (Exception e) {
+            Incognito.LOGGER.debug("[Incognito] Failed to track server address on connect: {}", e.getMessage());
+        }
+    }
+    
+    @Inject(method = "channelInactive", at = @At("HEAD"), require = 0)
+    private void incognito$onChannelInactive(ChannelHandlerContext context, CallbackInfo ci) {
+        ServerAddressTracker.onDisconnect();
+    }
     
     @Unique
     private static boolean incognito$logged = false;
@@ -279,6 +290,9 @@ public class ClientConnectionMixin {
         if (incognito$sending.get()) {
             return;
         }
+        
+        // Keybind protection is handled globally by KeybindContentsMixin
+        // This handler only processes brand/channel spoofing
         
         if (!(packet instanceof ServerboundCustomPayloadPacket customPayloadPacket)) {
             return;

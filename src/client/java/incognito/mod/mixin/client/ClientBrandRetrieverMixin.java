@@ -9,11 +9,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Mixin to spoof the client brand at its source.
- * ClientBrandRetriever is modified by Fabric to return "fabric".
- * We intercept it to return our spoofed brand.
- * 
- * Note: remap = false because this method is added by Fabric, not vanilla.
+ * Spoofs the client brand at its source.
  */
 @Mixin(ClientBrandRetriever.class)
 public class ClientBrandRetrieverMixin {

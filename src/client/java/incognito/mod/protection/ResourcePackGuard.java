@@ -10,9 +10,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 
-/**
- * Guards against resource pack-based fingerprinting attacks.
- */
 public class ResourcePackGuard {
     
     public static boolean isSuspiciousUrl(String url) {

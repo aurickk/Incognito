@@ -5,11 +5,6 @@ import incognito.mod.PrivacyLogger;
 import incognito.mod.config.IncognitoConfig;
 import net.minecraft.resources.ResourceLocation;
 
-/**
- * Handles client brand and channel spoofing for AntiSpoof bypass.
- * 
- * @see <a href="https://github.com/GigaZelensky/AntiSpoof">AntiSpoof</a>
- */
 public class ClientSpoofer {
     
     private static boolean loggedBrandSpoof = false;
@@ -34,40 +29,37 @@ public class ClientSpoofer {
     
     public static boolean isVanillaMode() {
         IncognitoConfig config = IncognitoConfig.getInstance();
-        return config.shouldSpoofBrand() && config.shouldSpoofChannels() && config.getSettings().isVanillaMode();
+        return config.shouldSpoofBrand() && config.shouldSpoofChannels() && "vanilla".equals(config.getEffectiveBrand());
     }
     
     public static boolean isFabricMode() {
         IncognitoConfig config = IncognitoConfig.getInstance();
-        return config.shouldSpoofBrand() && config.shouldSpoofChannels() && config.getSettings().isFabricMode();
+        return config.shouldSpoofBrand() && config.shouldSpoofChannels() && "fabric".equals(config.getEffectiveBrand());
     }
     
     public static boolean isForgeMode() {
         IncognitoConfig config = IncognitoConfig.getInstance();
-        return config.shouldSpoofBrand() && config.shouldSpoofChannels() && config.getSettings().isForgeMode();
+        return config.shouldSpoofBrand() && config.shouldSpoofChannels() && "forge".equals(config.getEffectiveBrand());
     }
     
     public static boolean shouldBlockPayload(ResourceLocation payloadId) {
         IncognitoConfig config = IncognitoConfig.getInstance();
         
-        if (!config.shouldSpoofBrand()) {
-            return false;
-        }
-
-        if (!config.shouldSpoofChannels()) {
+        if (!config.shouldSpoofBrand() || !config.shouldSpoofChannels()) {
             return false;
         }
         
         String channel = payloadId.toString();
         String namespace = payloadId.getNamespace();
         String path = payloadId.getPath();
+        String brand = config.getEffectiveBrand();
         
-        if (config.getSettings().isVanillaMode()) {
+        if ("vanilla".equals(brand)) {
             Incognito.LOGGER.debug("[Incognito] VANILLA MODE - Blocking payload: {}", channel);
             return true;
         }
         
-        if (config.getSettings().isFabricMode()) {
+        if ("fabric".equals(brand)) {
             if (namespace.equals("minecraft") || namespace.equals("c")) {
                 return false;
             }
@@ -81,7 +73,7 @@ public class ClientSpoofer {
             return true;
         }
         
-        if (config.getSettings().isForgeMode()) {
+        if ("forge".equals(brand)) {
             if (namespace.equals("minecraft")) {
                 return false;
             }

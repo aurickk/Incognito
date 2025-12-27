@@ -5,13 +5,10 @@ import incognito.mod.PrivacyLogger;
 import incognito.mod.config.IncognitoConfig;
 import incognito.mod.detection.LocalUrlDetector;
 import incognito.mod.detection.TrackPackDetector;
+import incognito.mod.util.ServerAddressTracker;
 import net.minecraft.client.multiplayer.ClientCommonPacketListenerImpl;
-import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.common.ClientboundResourcePackPushPacket;
-import net.minecraft.network.protocol.common.ServerboundResourcePackPacket;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -30,18 +27,17 @@ import java.util.UUID;
  * behavior when a local service doesn't exist. No texture reloads occur because the failure
  * happens at the same point in the code path as natural failures.
  * 
+ * PORT SCAN DETECTION:
+ * Detection always occurs for local URL probes, regardless of protection settings.
+ * This ensures full visibility into scanning attempts even when protection is off.
+ * 
  * FAKE PACK ACCEPT:
  * When enabled, we send ACCEPTED/DOWNLOADED/SUCCESSFULLY_LOADED without actually downloading
  * the pack. This prevents resource pack fingerprinting while allowing connection to servers
  * that require packs.
- * 
- * @see <a href="https://github.com/MeteorDevelopment/meteor-client/blob/master/src/main/java/meteordevelopment/meteorclient/systems/modules/misc/ServerSpoof.java">Meteor Client ServerSpoof</a>
- * @see <a href="https://github.com/NikOverflow/ExploitPreventer">ExploitPreventer</a>
  */
 @Mixin(ClientCommonPacketListenerImpl.class)
 public abstract class ClientCommonPacketListenerImplMixin {
-    
-    @Shadow @Final protected Connection connection;
     
     /**
      * URL that is guaranteed to fail immediately at the HTTP level.
@@ -58,7 +54,7 @@ public abstract class ClientCommonPacketListenerImplMixin {
     private static int incognito$localUrlSpoofCount = 0;
     
     /**
-     * Redirect the URL from the packet for local URLs.
+     * Redirect the URL from the packet for local URLs (only when protection is enabled).
      * This makes Minecraft try to download from an invalid address, causing a natural
      * HTTP failure without texture reloads.
      */
@@ -69,17 +65,14 @@ public abstract class ClientCommonPacketListenerImplMixin {
     private String incognito$redirectLocalUrl(ClientboundResourcePackPushPacket packet) {
         String originalUrl = packet.url();
         
-        // Check if this is a local URL that should be spoofed
-        if (IncognitoConfig.getInstance().shouldSpoofLocalPackUrls() && LocalUrlDetector.isLocalUrl(originalUrl)) {
+        // Only redirect if protection is enabled
+        if (IncognitoConfig.getInstance().shouldSpoofLocalPackUrls() && ServerAddressTracker.shouldBlockLocalUrl(originalUrl)) {
             incognito$localUrlSpoofCount++;
             String reason = LocalUrlDetector.getBlockReason(originalUrl);
             
             // Log the EXACT original URL from the server packet (before any parsing)
             Incognito.LOGGER.info("[Incognito] Blocking local port scan #{}: ORIGINAL URL = \"{}\" (reason: {})", 
                 incognito$localUrlSpoofCount, originalUrl, reason);
-            
-            // Queue alert for summary (shown after player finishes loading)
-            PrivacyLogger.alertLocalPackBlocked(originalUrl);
             
             // Return the fail URL - Minecraft will try to download from this and fail naturally
             return FAIL_URL;
@@ -89,20 +82,33 @@ public abstract class ClientCommonPacketListenerImplMixin {
     }
     
     /**
-     * Handle non-local URL pack pushes for detection and fake accept.
+     * Handle resource pack pushes:
+     * - ALWAYS detect local URL probes (port scans) - even if protection is off
+     * - Track packs for fingerprinting detection
+     * - Optionally fake accept packs
      */
     @Inject(method = "handleResourcePackPush", at = @At("HEAD"), cancellable = true)
     private void onResourcePackPush(ClientboundResourcePackPushPacket packet, CallbackInfo ci) {
         String url = packet.url();
         UUID packId = packet.id();
         
-        // Skip local URL handling here - it's handled by the @Redirect above
-        // Local URLs will be redirected to FAIL_URL and fail naturally
-        if (IncognitoConfig.getInstance().shouldSpoofLocalPackUrls() && LocalUrlDetector.isLocalUrl(url)) {
-            // Don't cancel - let the packet flow through with the redirected URL
+        boolean isLocalUrlProbe = ServerAddressTracker.shouldBlockLocalUrl(url);
+        boolean protectionEnabled = IncognitoConfig.getInstance().shouldSpoofLocalPackUrls();
+        
+        // ALWAYS detect and alert for local URL probes, regardless of protection setting
+        if (isLocalUrlProbe) {
+            // Alert with protection status (blocked vs just detected)
+            PrivacyLogger.alertLocalPortScanDetected(url, protectionEnabled);
+            
             // Record for detection purposes
             TrackPackDetector.recordRequest(url, packet.hash());
-            return;
+            
+            // If protection is enabled, the @Redirect will handle the URL substitution
+            // We don't cancel here - let the packet flow through
+            if (protectionEnabled) {
+                return; // Let @Redirect handle it
+            }
+            // If protection is off, continue with normal flow but we've alerted
         }
         
         // Record the request for detection/logging
@@ -117,43 +123,12 @@ public abstract class ClientCommonPacketListenerImplMixin {
         if (TrackPackDetector.isFingerprinting() && TrackPackDetector.consumeNotifyPatternOnce()) {
             PrivacyLogger.alert(PrivacyLogger.AlertType.DANGER,
                 "Resource pack fingerprinting pattern detected!");
+            PrivacyLogger.toast(PrivacyLogger.AlertType.DANGER, "Resource Pack Fingerprinting Detected");
         }
         
-        // If fake pack accept is enabled, intercept ALL resource packs
-        if (IncognitoConfig.getInstance().shouldFakePackAccept()) {
-            // Fake accept the resource pack
-            fakeAcceptResourcePack(packId, url);
-            ci.cancel();
-        }
-    }
-    
-    /**
-     * Fake accepting a resource pack by sending the full sequence of responses:
-     * ACCEPTED -> DOWNLOADED -> SUCCESSFULLY_LOADED
-     * 
-     * This makes the server think we accepted and loaded the pack without actually downloading it.
-     * Based on Meteor Client's ServerSpoof module.
-     */
-    @Unique
-    private void fakeAcceptResourcePack(UUID packId, String url) {
-        try {
-            // Step 1: Tell server we accepted the pack
-            connection.send(new ServerboundResourcePackPacket(packId, ServerboundResourcePackPacket.Action.ACCEPTED));
-            
-            // Step 2: Tell server we downloaded the pack
-            connection.send(new ServerboundResourcePackPacket(packId, ServerboundResourcePackPacket.Action.DOWNLOADED));
-            
-            // Step 3: Tell server we successfully loaded the pack
-            connection.send(new ServerboundResourcePackPacket(packId, ServerboundResourcePackPacket.Action.SUCCESSFULLY_LOADED));
-            
-            Incognito.LOGGER.info("[Incognito] Fake accepted resource pack: {}", url);
-            
-            if (TrackPackDetector.consumeNotifyBlockedOnce()) {
-                PrivacyLogger.alertTrackPackBlocked(url);
-            }
-        } catch (Exception e) {
-            Incognito.LOGGER.error("[Incognito] Failed to fake accept resource pack: {}", e.getMessage());
-        }
+        // Note: Fake pack accept feature is not yet implemented in current config
+        // If needed, add shouldFakePackAccept() to IncognitoConfig and SpoofSettings
     }
     
 }
+

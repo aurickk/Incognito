@@ -8,9 +8,6 @@
 		"ClientConnectionMixin",
 		"ClientPacketListenerMixin",
 		"ClientCommonPacketListenerImplMixin",
-		"SignEditScreenMixin",
-		"AnvilScreenMixin",
-		"AnvilMenuMixin",
 		"ConnectScreenMixin",
 		"MultiPlayerGameModeMixin",
 		"DownloadQueueMixin",
@@ -20,11 +17,13 @@
 		"JoinMultiplayerScreenMixin",
 		"MinecraftMixin",
 		"YggdrasilUserApiServiceMixin",
-		"ChatListenerMixin",
-		"GuiMessageTagMixin",
-		"ToastManagerMixin",
 		"ChatOptionsScreenMixin",
-		"ServerboundChatPacketMixin"
+		"ServerboundChatPacketMixin",
+		"HttpUtilMixin",
+		"ClientLanguageMixin",
+		"KeyBindingRegistryImplMixin",
+		"OptionsMixin",
+		"KeybindContentsMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

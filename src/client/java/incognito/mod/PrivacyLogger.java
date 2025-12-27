@@ -1,6 +1,7 @@
 package incognito.mod;
 
 import incognito.mod.config.IncognitoConfig;
+import incognito.mod.config.IncognitoConstants;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.toasts.SystemToast;
@@ -13,13 +14,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Thread-safe privacy alert and logging system.
- */
 public class PrivacyLogger {
     private static final ConcurrentHashMap<String, Long> toastCooldowns = new ConcurrentHashMap<>();
-    private static final long DEFAULT_TOAST_COOLDOWN_MS = 3000L;
-    private static final long EXPLOIT_TOAST_COOLDOWN_MS = 5000L;
     
     private static final Set<String> pendingPortScans = ConcurrentHashMap.newKeySet();
     private static final AtomicInteger totalPortScansBlocked = new AtomicInteger(0);
@@ -66,12 +62,19 @@ public class PrivacyLogger {
     }
     
     public static void toast(AlertType type, String title, String message) {
+        if (!IncognitoConfig.getInstance().shouldShowToasts()) return;
         try {
-            if (!IncognitoConfig.getInstance().shouldShowToasts()) return;
             showToast(type, title, message);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             Incognito.LOGGER.error("[Incognito] Exception in toast(): {}", e.getMessage());
         }
+    }
+    
+    /**
+     * Show a toast with title only (no description).
+     */
+    public static void toast(AlertType type, String title) {
+        toast(type, title, null);
     }
     
     public static void toastWithCooldown(AlertType type, String title, String message, String cooldownKey, long cooldownMs) {
@@ -81,7 +84,7 @@ public class PrivacyLogger {
     
     public static void alertWithToast(AlertType type, String message, String toastTitle) {
         alert(type, message);
-        toast(type, toastTitle, message);
+        toast(type, toastTitle);
     }
     
     public static void showToast(AlertType type, String title, String message) {
@@ -98,10 +101,13 @@ public class PrivacyLogger {
             if (toastComponent == null) return;
             
             Component titleComponent = Component.literal(type.getIcon() + " " + title).withStyle(type.getColor());
-            Component messageComponent = Component.literal(message).withStyle(ChatFormatting.GRAY);
+            // Only add message component if message is provided
+            Component messageComponent = (message != null && !message.isEmpty()) 
+                ? Component.literal(message).withStyle(ChatFormatting.GRAY) 
+                : null;
             
             SystemToast.add(toastComponent, SystemToast.SystemToastId.PACK_LOAD_FAILURE, titleComponent, messageComponent);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             Incognito.LOGGER.error("[Incognito] Exception showing toast: {}", e.getMessage());
         }
     }
@@ -118,6 +124,20 @@ public class PrivacyLogger {
                 .append(Component.literal("[Incognito] ").withStyle(ChatFormatting.DARK_PURPLE))
                 .append(Component.literal(message).withStyle(type.getColor()));
         
+        client.player.displayClientMessage(component, false);
+    }
+    
+    /**
+     * Send keybind detail message without header prefix (just the keybind info).
+     */
+    public static void sendKeybindDetail(String detail) {
+        if (!IncognitoConfig.getInstance().shouldShowAlerts()) return;
+        
+        Minecraft client = Minecraft.getInstance();
+        if (client.player == null) return;
+        
+        // Simple format: just the keybind detail in red
+        MutableComponent component = Component.literal(detail).withStyle(ChatFormatting.RED);
         client.player.displayClientMessage(component, false);
     }
     
@@ -142,26 +162,25 @@ public class PrivacyLogger {
     public static void alertTrackPackDetected(String url) {
         logDetection("TrackPack", "Suspicious URL: " + url);
         alert(AlertType.DANGER, "Resource pack fingerprinting detected! URL: " + url);
-        toastWithCooldown(AlertType.DANGER, "TrackPack Detected", 
-            "Resource pack fingerprinting detected!", "trackpack_detected", DEFAULT_TOAST_COOLDOWN_MS);
+        toastWithCooldown(AlertType.DANGER, "Resource Pack Fingerprinting Detected", 
+            null, "trackpack_detected", IncognitoConstants.Timeouts.DEFAULT_TOAST_COOLDOWN_MS);
     }
     
-    public static void alertTrackPackBlocked(String url) {
-        logDetection("TrackPack", "Fake accepted URL: " + url);
-        alert(AlertType.BLOCKED, "Fake accepted resource pack (not loaded): " + url);
-        toastWithCooldown(AlertType.BLOCKED, "Pack Blocked", 
-            "Resource pack fake-accepted", "trackpack_blocked", DEFAULT_TOAST_COOLDOWN_MS);
-    }
-    
-    public static void alertLocalPackBlocked(String url) {
+    /**
+     * Alert for local port scan detection.
+     * Detection always happens, blocking is optional based on protection setting.
+     */
+    public static void alertLocalPortScanDetected(String url, boolean blocked) {
         String hostPort = extractHostPort(url);
-        logDetection("LocalPack", "Spoofed failure for local URL probe: " + url);
+        String action = blocked ? "Blocked" : "Detected (protection OFF)";
+        logDetection("LocalPack", action + " local URL probe: " + url);
         
         totalPortScansBlocked.incrementAndGet();
         pendingPortScans.add(hostPort);
         
-        if (!isToastOnCooldown("localpack_alert", EXPLOIT_TOAST_COOLDOWN_MS)) {
-            toast(AlertType.BLOCKED, "Port Scan Blocked", "Blocked " + pendingPortScans.size() + " probe(s)");
+        if (!isToastOnCooldown("localpack_alert", IncognitoConstants.Timeouts.EXPLOIT_TOAST_COOLDOWN_MS)) {
+            alert(AlertType.DANGER, "Port scan " + (blocked ? "blocked" : "detected") + ": " + hostPort);
+            toast(AlertType.DANGER, "Local URL Scan Detected");
         }
     }
     
@@ -174,32 +193,29 @@ public class PrivacyLogger {
         
         if (uniquePorts == 1) {
             String port = pendingPortScans.iterator().next();
-            alert(AlertType.BLOCKED, "Blocked " + total + " local port scan(s) to " + port);
+            alert(AlertType.DANGER, "Detected " + total + " local port scan(s) to " + port);
         } else {
             StringBuilder portsStr = new StringBuilder();
             int shown = 0;
             for (String port : pendingPortScans) {
                 if (shown > 0) portsStr.append(", ");
                 portsStr.append(port);
-                if (++shown >= 5) {
-                    if (uniquePorts > 5) portsStr.append(" +").append(uniquePorts - 5).append(" more");
+                if (++shown >= IncognitoConstants.Display.MAX_PORTS_TO_SHOW) {
+                    if (uniquePorts > IncognitoConstants.Display.MAX_PORTS_TO_SHOW) 
+                        portsStr.append(" +").append(uniquePorts - IncognitoConstants.Display.MAX_PORTS_TO_SHOW).append(" more");
                     break;
                 }
             }
-            alert(AlertType.BLOCKED, "Blocked " + total + " local port scan(s): " + portsStr);
+            alert(AlertType.DANGER, "Detected " + total + " local port scan(s): " + portsStr);
         }
         
-        Incognito.LOGGER.info("[Incognito] Port scan summary: blocked {} requests to {} unique targets", total, uniquePorts);
+        Incognito.LOGGER.info("[Incognito] Port scan summary: detected {} requests to {} unique targets", total, uniquePorts);
     }
     
     public static void resetPortScanTracking() {
         pendingPortScans.clear();
         totalPortScansBlocked.set(0);
         portScanSummaryShown.set(false);
-    }
-    
-    public static boolean hasPendingPortScans() {
-        return !pendingPortScans.isEmpty() && !portScanSummaryShown.get();
     }
     
     public static void resetAllState() {
@@ -225,7 +241,7 @@ public class PrivacyLogger {
     }
     
     public enum ExploitSource {
-        SIGN("Sign"), ANVIL("Anvil"), BOOK("Book");
+        SIGN("Sign"), ANVIL("Anvil"), BOOK("Book"), UNKNOWN("Unknown source");
         
         private final String displayName;
         ExploitSource(String displayName) { this.displayName = displayName; }
@@ -239,24 +255,10 @@ public class PrivacyLogger {
             "Server attempted exploit via " + sourceName.toLowerCase() + 
             (spoofedContent != null ? " - Spoofed: " + spoofedContent : ""));
         
-        String message = "Translation exploit detected via " + sourceName.toLowerCase() + "!";
-        if (spoofedContent != null && !spoofedContent.isEmpty()) {
-            message += " Spoofed: " + spoofedContent;
-        }
-        alert(AlertType.DANGER, message);
+        alert(AlertType.DANGER, "Translation exploit detected!");
         
-        toastWithCooldown(AlertType.DANGER, sourceName + " Exploit Detected", 
-            "Translation exploit detected via " + sourceName.toLowerCase() + "!",
-            "exploit_" + sourceName.toLowerCase(), EXPLOIT_TOAST_COOLDOWN_MS);
-    }
-    
-    public static void alertTranslationExploitBlocked(ExploitSource source) {
-        String sourceName = source.getDisplayName();
-        logDetection("TranslationExploit:" + sourceName, "Sanitized outgoing " + sourceName.toLowerCase() + " data");
-        alert(AlertType.BLOCKED, "Blocked translation exploit via " + sourceName.toLowerCase());
-        toastWithCooldown(AlertType.BLOCKED, sourceName + " Exploit Blocked", 
-            "Translation exploit blocked via " + sourceName.toLowerCase(),
-            "exploit_blocked_" + sourceName.toLowerCase(), EXPLOIT_TOAST_COOLDOWN_MS);
+        toastWithCooldown(AlertType.DANGER, "Translation Exploit Detected", 
+            null, "exploit_translation", IncognitoConstants.Timeouts.EXPLOIT_TOAST_COOLDOWN_MS);
     }
     
     public static void alertClientBrandSpoofed(String originalBrand, String spoofedBrand) {
@@ -272,8 +274,7 @@ public class PrivacyLogger {
     }
     
     public static void alertSecureChatRequired(String server) {
-        toast(AlertType.WARNING, "Secure Chat Required", 
-            "Server requires signed chat - signing enabled for this session");
+        toast(AlertType.WARNING, "Secure Chat Required");
         alert(AlertType.WARNING, "Server " + server + " requires secure chat. Chat signing enabled for this session.");
         logDetection("SecureChat", "Server " + server + " enforces secure chat - ON_DEMAND signing activated");
     }

@@ -8,9 +8,6 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/**
- * Mixin to handle server connection events.
- */
 @Mixin(ConnectScreen.class)
 public class ConnectScreenMixin {
     

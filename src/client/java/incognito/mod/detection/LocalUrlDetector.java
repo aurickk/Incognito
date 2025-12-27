@@ -7,19 +7,8 @@ import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.regex.Pattern;
 
-/**
- * Detects if a URL points to a local/private IP address.
- * 
- * Servers can abuse resource pack URLs to probe local services on the client's machine.
- * By sending URLs like http://localhost:8080 or http://192.168.1.1, servers can detect
- * what local services are running (routers, TVs, game clients, etc).
- * 
- * See: https://github.com/NikOverflow/ExploitPreventer
- * See: https://alaggydev.github.io/posts/cytooxien/
- */
 public class LocalUrlDetector {
     
-    // Pattern for private IPv4 ranges
     private static final Pattern PRIVATE_IPV4 = Pattern.compile(
         "^(" +
         "10\\." +                           // 10.0.0.0/8
@@ -32,7 +21,6 @@ public class LocalUrlDetector {
         ")"
     );
     
-    // Common localhost hostnames
     private static final String[] LOCALHOST_NAMES = {
         "localhost",
         "localhost.localdomain",
@@ -41,12 +29,6 @@ public class LocalUrlDetector {
         "ip6-loopback"
     };
     
-    /**
-     * Check if a URL points to a local/private IP address.
-     * 
-     * @param url The URL to check
-     * @return true if the URL is local/private, false otherwise
-     */
     public static boolean isLocalUrl(String url) {
         if (url == null || url.isEmpty()) {
             return false;
@@ -60,7 +42,6 @@ public class LocalUrlDetector {
                 return false;
             }
             
-            // Check for localhost names
             String hostLower = host.toLowerCase();
             for (String localhost : LOCALHOST_NAMES) {
                 if (hostLower.equals(localhost)) {
@@ -69,19 +50,16 @@ public class LocalUrlDetector {
                 }
             }
             
-            // Check for private IP patterns
             if (PRIVATE_IPV4.matcher(host).find()) {
                 Incognito.LOGGER.debug("[Incognito] Detected private IPv4: {}", host);
                 return true;
             }
             
-            // Check for IPv6 loopback
             if (host.equals("::1") || host.equals("[::1]") || host.startsWith("fe80:")) {
                 Incognito.LOGGER.debug("[Incognito] Detected IPv6 loopback/link-local: {}", host);
                 return true;
             }
             
-            // Resolve hostname to check if it resolves to local IP
             try {
                 InetAddress address = InetAddress.getByName(host);
                 if (address.isLoopbackAddress() || 
@@ -93,14 +71,12 @@ public class LocalUrlDetector {
                     return true;
                 }
             } catch (UnknownHostException e) {
-                // Can't resolve - might be a trap to probe DNS, treat as suspicious
-                // But don't block since it could be legitimate
                 Incognito.LOGGER.debug("[Incognito] Could not resolve hostname: {}", host);
             }
             
             return false;
             
-        } catch (Exception e) {
+        } catch (java.net.URISyntaxException e) {
             Incognito.LOGGER.debug("[Incognito] Error parsing URL {}: {}", url, e.getMessage());
             return false;
         }
@@ -143,7 +119,7 @@ public class LocalUrlDetector {
             
             return "local/private address";
             
-        } catch (Exception e) {
+        } catch (java.net.URISyntaxException e) {
             return "suspicious URL";
         }
     }

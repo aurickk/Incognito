@@ -27,12 +27,14 @@ loom {
 
 sourceSets {
 	main {
-		java.srcDir rootProject.file('src/main/java')
-		resources.srcDir rootProject.file('src/main/resources')
+		java.srcDirs = [rootProject.file('src/main/java')]
+		// Include BOTH shared resources (icon, lang) and subproject-specific (fabric.mod.json)
+		resources.srcDirs = [rootProject.file('src/main/resources'), file('src/main/resources')]
 	}
 	client {
-		java.srcDir rootProject.file('src/client/java')
-		resources.srcDir rootProject.file('src/client/resources')
+		// Include BOTH shared sources and subproject-specific sources
+		java.srcDirs = [rootProject.file('src/client/java'), file('src/client/java')]
+		resources.srcDirs = [rootProject.file('src/client/resources')]
 	}
 }
 

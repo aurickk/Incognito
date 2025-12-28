@@ -33,7 +33,7 @@
 4. Place both mods in your `.minecraft/mods` folder
 5. Launch Minecraft
 
-### Configurations
+## Configurations
 
 The settings menu is accessible via the draggable `Incognito` button in the multiplayer server selection menu or [Mod Menu](https://modrinth.com/mod/modmenu).
 

@@ -192,7 +192,7 @@ Incognito blocks telemetry sending to Mojang when telemetry blocking is enabled.
 1. **Clone the repository**
    ```bash
    git clone https://github.com/aurickk/Incognito.git
-   cd Pay-Everyone
+   cd Incognito
    ```
 
 2. **Build the mod**

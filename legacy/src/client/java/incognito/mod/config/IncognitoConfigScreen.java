@@ -430,16 +430,16 @@ public class IncognitoConfigScreen extends Screen {
     private static class SigningModeDisplay {
         public static Component getDisplayName(SpoofSettings.SigningMode mode) {
             return switch (mode) {
-                case SIGN -> Component.literal("§cOn"); // Red - signing enabled (privacy concern)
-                case OFF -> Component.literal("§eOff"); // Yellow - signing disabled (may break servers)
-                case ON_DEMAND -> Component.literal("§aAuto"); // Green - recommended
+                case SIGN -> Component.literal("§cON"); // Red - signing enabled
+                case OFF -> Component.literal("§eOFF"); // Yellow - signing disabled
+                case ON_DEMAND -> Component.literal("§aAUTO"); // Green - recommended
             };
         }
         
         public static Component getTooltip(SpoofSettings.SigningMode mode) {
             return switch (mode) {
-                case SIGN -> Component.literal("Always sign chat messages (reportable to Mojang)");
-                case OFF -> Component.literal("Never sign chat messages (may break on strict servers)");
+                case SIGN -> Component.literal("Always sign chat messages");
+                case OFF -> Component.literal("Never sign chat messages");
                 case ON_DEMAND -> Component.literal("Only sign chat messages when server requires it");
             };
         }

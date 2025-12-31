@@ -2,6 +2,8 @@ package incognito.mod.mixin.client;
 
 import incognito.mod.detection.TrackPackDetector;
 import incognito.mod.protection.ResourcePackGuard;
+import incognito.mod.protection.TranslationProtectionHandler;
+import incognito.mod.tracking.ModTracker;
 import net.minecraft.client.gui.screens.ConnectScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -18,5 +20,7 @@ public class ConnectScreenMixin {
     private static void incognito$resetState(CallbackInfo ci) {
         TrackPackDetector.reset();
         ResourcePackGuard.onServerJoin();
+        TranslationProtectionHandler.clearCache();
+        ModTracker.clearServerPackKeys();  // Clear server pack whitelist for new server
     }
 }

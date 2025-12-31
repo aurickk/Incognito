@@ -18,10 +18,10 @@ import java.util.UUID;
 @Mixin(DownloadQueue.class)
 public class DownloadQueueMixin {
     @Unique
-    private static boolean incognito$loggedOnce = false;
+    private static volatile boolean incognito$loggedOnce = false;
     
     @Unique
-    private static UUID incognito$lastLoggedAccountId = null;
+    private static volatile UUID incognito$lastLoggedAccountId = null;
 
     @ModifyExpressionValue(
         method = "*",

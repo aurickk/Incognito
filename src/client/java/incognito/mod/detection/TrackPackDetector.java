@@ -4,11 +4,10 @@ import incognito.mod.PrivacyLogger;
 import incognito.mod.config.IncognitoConstants;
 
 import java.net.URI;
-import java.util.Collections;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -33,8 +32,11 @@ public class TrackPackDetector {
         15000, 25565, 8080, 3000, 4000, 5000, 8000, 9000, 1337, 7777
     };
     
-    private static final List<RequestRecord> recentRequests = new CopyOnWriteArrayList<>();
-    private static final Set<String> uniqueHashes = Collections.synchronizedSet(new HashSet<>());
+    // Bounded collections to prevent memory leaks
+    private static final Deque<RequestRecord> recentRequests = new ArrayDeque<>();
+    private static final Set<String> uniqueHashes = new HashSet<>();
+    private static final Object LOCK = new Object();
+    
     private static final AtomicLong lastRequestTime = new AtomicLong(0);
     private static final AtomicInteger consecutiveRapidRequests = new AtomicInteger(0);
     private static final AtomicReference<DetectionResult> lastDetectionResult = new AtomicReference<>(null);
@@ -54,7 +56,29 @@ public class TrackPackDetector {
         long now = System.currentTimeMillis();
         boolean suspicious = isSuspiciousUrl(url);
         
-        recentRequests.removeIf(r -> now - r.timestamp > IncognitoConstants.Detection.DETECTION_WINDOW_MS);
+        synchronized (LOCK) {
+            // Remove expired entries and enforce size limit
+            while (!recentRequests.isEmpty() && 
+                   (now - recentRequests.peekFirst().timestamp > IncognitoConstants.Detection.DETECTION_WINDOW_MS ||
+                    recentRequests.size() >= IncognitoConstants.Limits.MAX_RECENT_REQUESTS)) {
+                recentRequests.pollFirst();
+            }
+            
+            // Clear hashes if no recent requests
+            if (recentRequests.isEmpty()) {
+                uniqueHashes.clear();
+            }
+            
+            // Track hash with size limit
+            if (hash != null && !hash.isEmpty()) {
+                if (uniqueHashes.size() >= IncognitoConstants.Limits.MAX_UNIQUE_HASHES) {
+                    uniqueHashes.clear();
+                }
+                uniqueHashes.add(hash);
+            }
+            
+            recentRequests.addLast(new RequestRecord(url, hash, now, suspicious));
+        }
         
         long lastTime = lastRequestTime.get();
         if (lastTime > 0 && (now - lastTime) < IncognitoConstants.Detection.RAPID_REQUEST_INTERVAL_MS) {
@@ -64,31 +88,26 @@ public class TrackPackDetector {
         }
         lastRequestTime.set(now);
         
-        if (hash != null && !hash.isEmpty()) {
-            if (recentRequests.isEmpty()) {
-                synchronized (uniqueHashes) {
-                    uniqueHashes.clear();
-                }
-            }
-            uniqueHashes.add(hash);
-        }
-        
-        recentRequests.add(new RequestRecord(url, hash, now, suspicious));
         analyzePatterns(url);
         return suspicious;
     }
     
     private static void analyzePatterns(String url) {
         if (isRapidRequestPattern()) {
+            int rapidCount = consecutiveRapidRequests.get();
             lastDetectionResult.set(new DetectionResult(DetectionType.RAPID_REQUESTS,
                 "Rapid sequential requests detected", 4, url));
-            PrivacyLogger.logDetection("TrackPack", "Rapid request pattern: " + consecutiveRapidRequests.get());
+            PrivacyLogger.logDetection("TrackPack", "Rapid request pattern: " + rapidCount);
         }
         
         if (isHashProbing()) {
+            int hashCount;
+            synchronized (LOCK) {
+                hashCount = uniqueHashes.size();
+            }
             lastDetectionResult.set(new DetectionResult(DetectionType.HASH_PROBING,
-                "Cache probing with " + uniqueHashes.size() + " unique hashes", 5, url));
-            PrivacyLogger.logDetection("TrackPack", "Hash probing: " + uniqueHashes.size() + " hashes");
+                "Cache probing with " + hashCount + " unique hashes", 5, url));
+            PrivacyLogger.logDetection("TrackPack", "Hash probing: " + hashCount + " hashes");
         }
         
         if (isFingerprinting()) {
@@ -162,23 +181,38 @@ public class TrackPackDetector {
     }
     
     public static boolean isRapidRequestPattern() {
+        if (consecutiveRapidRequests.get() >= IncognitoConstants.Detection.RAPID_REQUEST_THRESHOLD) {
+            return true;
+        }
+        
         long now = System.currentTimeMillis();
-        long rapidCount = recentRequests.stream().filter(r -> now - r.timestamp < IncognitoConstants.Detection.RAPID_WINDOW_MS).count();
-        return rapidCount >= IncognitoConstants.Detection.RAPID_REQUEST_THRESHOLD 
-            || consecutiveRapidRequests.get() >= IncognitoConstants.Detection.RAPID_REQUEST_THRESHOLD;
+        synchronized (LOCK) {
+            long rapidCount = recentRequests.stream()
+                .filter(r -> now - r.timestamp < IncognitoConstants.Detection.RAPID_WINDOW_MS)
+                .count();
+            return rapidCount >= IncognitoConstants.Detection.RAPID_REQUEST_THRESHOLD;
+        }
     }
     
     public static boolean isHashProbing() {
-        if (recentRequests.size() < IncognitoConstants.Detection.MIN_REQUESTS_FOR_HASH_ANALYSIS) return false;
+        synchronized (LOCK) {
+            if (recentRequests.size() < IncognitoConstants.Detection.MIN_REQUESTS_FOR_HASH_ANALYSIS) {
+                return false;
+            }
         double uniqueRatio = (double) uniqueHashes.size() / recentRequests.size();
         return uniqueHashes.size() >= IncognitoConstants.Detection.UNIQUE_HASH_THRESHOLD 
             && uniqueRatio > IncognitoConstants.Detection.HASH_PROBING_RATIO_THRESHOLD;
+        }
     }
     
     public static boolean isFingerprinting() {
         long now = System.currentTimeMillis();
-        long count = recentRequests.stream().filter(r -> now - r.timestamp < IncognitoConstants.Detection.DETECTION_WINDOW_MS).count();
+        synchronized (LOCK) {
+            long count = recentRequests.stream()
+                .filter(r -> now - r.timestamp < IncognitoConstants.Detection.DETECTION_WINDOW_MS)
+                .count();
         return count >= IncognitoConstants.Detection.FINGERPRINT_THRESHOLD;
+        }
     }
 
     public static boolean consumeNotifySuspiciousOnce() {
@@ -190,8 +224,8 @@ public class TrackPackDetector {
     }
     
     public static void reset() {
+        synchronized (LOCK) {
         recentRequests.clear();
-        synchronized (uniqueHashes) {
             uniqueHashes.clear();
         }
         consecutiveRapidRequests.set(0);

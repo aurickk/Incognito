@@ -2,28 +2,39 @@ package incognito.mod.mixin.client;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import incognito.mod.Incognito;
-import incognito.mod.PrivacyLogger;
 import incognito.mod.config.IncognitoConfig;
-import incognito.mod.config.IncognitoConstants;
-import incognito.mod.detection.ExploitDetector;
-import incognito.mod.util.KeybindDefaults;
+import incognito.mod.detection.ExploitContext;
+import incognito.mod.protection.TranslationProtectionHandler;
 import incognito.mod.tracking.ModTracker;
-import net.minecraft.client.KeyMapping;
-import net.minecraft.client.Minecraft;
+import incognito.mod.util.KeybindDefaults;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.KeybindContents;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 
 import java.util.function.Supplier;
 
 /**
- * Keybind detection and protection via Component-level interception.
- * Detection always happens; protection only when enabled.
+ * Intercepts keybind resolution to protect user privacy.
+ * 
+ * Uses ThreadLocal context detection to only protect in exploitable contexts:
+ * - Normal mod UI: Allow normal resolution
+ * - Sign/Anvil/Book screens: Protect by returning cached defaults or raw key names
+ * 
+ * Whitelist priority:
+ * 1. Vanilla keybinds - Return cached default value
+ * 2. Server resource pack keybinds - Allow resolution (prevents anti-spoof detection)
+ * 3. Mod/Unknown keybinds - Return raw key name
+ * 
+ * This prevents servers from detecting:
+ * 1. User's custom keybind settings (vanilla keybinds)
+ * 2. Installed mods (mod keybinds with any naming convention)
+ * 
+ * Note: Some mods use non-standard keybind names (e.g., "gui.xaero_toggle_slime"
+ * instead of "key.xaero.toggle_slime"). We protect ALL keybinds regardless of
+ * naming convention since anything in KeybindContents is a keybind by definition.
  */
 @Mixin(KeybindContents.class)
 public class KeybindContentsMixin {
@@ -31,175 +42,59 @@ public class KeybindContentsMixin {
     @Shadow @Final
     private String name;
     
-    @Unique
-    private static final java.util.Set<String> recentlyLoggedKeys = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    @Unique
-    private static long lastLogClearTime = 0;
-    
-    @Unique
-    private static volatile boolean anyValueChangedInBatch = false;
-    @Unique
-    private static volatile PrivacyLogger.ExploitSource batchSource = null;
-    @Unique
-    private static volatile long batchStartTime = 0;
-    
+    /**
+     * Intercept keybind resolution with context-aware protection.
+     * Detection and alerts work even when protection is disabled.
+     * Protects ALL keybinds regardless of naming convention.
+     */
     @WrapOperation(
         method = "getNestedComponent",
         at = @At(value = "INVOKE", target = "Ljava/util/function/Supplier;get()Ljava/lang/Object;"),
         require = 0
     )
-    private Object incognito$spoofKeybindName(Supplier<?> supplier, Operation<Object> original) {
+    private Object incognito$interceptKeybind(Supplier<?> supplier, Operation<Object> original) {
+        // Not in exploitable context - allow normal resolution (no detection needed)
+        if (!ExploitContext.isInExploitableContext()) {
+            return original.call(supplier);
+        }
+        
+        // Server resource pack keybind - allow (prevents anti-spoof detection)
+        // Check this BEFORE triggering detection alerts
+        if (ModTracker.isServerPackTranslationKey(name)) {
+            return original.call(supplier);
+        }
+        
+        // In exploitable context - always notify detection (header alert)
+        TranslationProtectionHandler.notifyExploitDetected();
+        
+        // Get original value
         Object originalResult = original.call(supplier);
         String originalValue = originalResult instanceof Component c ? c.getString() : originalResult.toString();
         
-        boolean protectionEnabled = IncognitoConfig.getInstance().isTranslationProtectionEnabled();
-        
-        scanRuntimeKeybindsIfNeeded();
-        
-        boolean isVanilla = KeybindDefaults.hasDefault(name) || ModTracker.isVanillaKeybind(name);
-        boolean isKnownModKeybind = !isVanilla && ModTracker.isKnownKeybind(name);
-        
-        long now = System.currentTimeMillis();
-        if (now - lastLogClearTime > IncognitoConstants.Timeouts.LOG_CACHE_CLEAR_INTERVAL_MS) {
-            recentlyLoggedKeys.clear();
-            lastLogClearTime = now;
+        // If protection is disabled, allow normal resolution but still log detection
+        if (!IncognitoConfig.getInstance().isTranslationProtectionEnabled()) {
+            TranslationProtectionHandler.logDetection(name, originalValue, originalValue);
+            return originalResult;
         }
         
-        String logKey = name + ":" + originalValue;
-        if (recentlyLoggedKeys.add(logKey)) {
-            String keyType = isVanilla ? "VANILLA" : (isKnownModKeybind ? "MOD" : "UNKNOWN");
-            String modId = isKnownModKeybind ? ModTracker.getModForKeybind(name) : null;
-            Incognito.LOGGER.info("[Keybind:{}] Key '{}' resolved to '{}'{}", 
-                keyType, name, originalValue, 
-                modId != null ? " (mod: " + modId + ")" : "");
-        }
-        
-        String spoofedValue = null;
-        boolean valueWouldChange = false;
-        
-        if (isVanilla) {
+        // Protection enabled - determine spoofed value
+        String spoofedValue;
+        if (KeybindDefaults.hasDefault(name)) {
+            // Vanilla keybind - return cached default
             spoofedValue = KeybindDefaults.getDefault(name);
-            if (spoofedValue == null) {
-                spoofedValue = name;
-            }
-            valueWouldChange = !originalValue.equals(spoofedValue);
-        } else if (isKnownModKeybind) {
+        } else {
+            // Mod keybind or unknown - return raw key name
             spoofedValue = name;
-            valueWouldChange = !originalValue.equals(spoofedValue);
         }
         
-        handleExploitDetected(originalValue, spoofedValue, valueWouldChange, protectionEnabled);
-        
-        if (!isVanilla && !isKnownModKeybind) {
-            return originalResult;
+        // Send detail alert if value changed
+        if (!originalValue.equals(spoofedValue)) {
+            TranslationProtectionHandler.sendDetail(name, originalValue, spoofedValue);
         }
         
-        if (protectionEnabled) {
-            return Component.literal(spoofedValue);
-        } else {
-            return originalResult;
-        }
-    }
-    
-    private void handleExploitDetected(String originalValue, String spoofedValue, boolean valueWouldChange, boolean protectionEnabled) {
-        String alertEntry;
-        if (spoofedValue == null) {
-            alertEntry = "[" + name + "] '" + originalValue + "' (unknown key)";
-        } else if (valueWouldChange) {
-            if (protectionEnabled) {
-                alertEntry = "[" + name + "] '" + originalValue + "'→'" + spoofedValue + "'";
-            } else {
-                alertEntry = "[" + name + "] '" + originalValue + "' (protection OFF)";
-            }
-        } else {
-            alertEntry = "[" + name + "] '" + originalValue + "' (unchanged)";
-        }
+        // Always log detection (even if value unchanged)
+        TranslationProtectionHandler.logDetection(name, originalValue, spoofedValue);
         
-        PrivacyLogger.ExploitSource source = ExploitDetector.detectSource();
-        boolean playerInitiated = ExploitDetector.wasPlayerInitiated(source);
-        
-        long now = System.currentTimeMillis();
-        if (now - batchStartTime > IncognitoConstants.Timeouts.BATCH_WINDOW_MS) {
-            anyValueChangedInBatch = false;
-            batchSource = null;
-            batchStartTime = now;
-        }
-        if (valueWouldChange) {
-            anyValueChangedInBatch = true;
-        }
-        if (batchSource == null || source != PrivacyLogger.ExploitSource.UNKNOWN) {
-            batchSource = source;
-        }
-        
-        if (!ExploitDetector.shouldAlert(alertEntry)) {
-            return;
-        }
-        
-        String initiator = playerInitiated ? "player" : "server";
-        String action = protectionEnabled && valueWouldChange ? "Spoofed" : "Detected";
-        Incognito.LOGGER.info("[Keybind] {} ({}-initiated {}): {}", 
-            action, initiator, source.getDisplayName().toLowerCase(), alertEntry);
-        
-        PrivacyLogger.logDetection("TranslationExploit:" + source.getDisplayName(), alertEntry);
-        
-        if (!playerInitiated && ExploitDetector.shouldSendHeaderAlert()) {
-            if (anyValueChangedInBatch) {
-                String sourceName = (batchSource != null ? batchSource : source).getDisplayName().toLowerCase();
-                PrivacyLogger.alert(PrivacyLogger.AlertType.DANGER, "Translation exploit detected via " + sourceName + "!");
-            } else {
-                PrivacyLogger.alert(PrivacyLogger.AlertType.DANGER, "Translation exploit detected!");
-            }
-            PrivacyLogger.toast(PrivacyLogger.AlertType.DANGER, "Translation Exploit Detected");
-        }
-        
-        if (protectionEnabled && valueWouldChange) {
-            PrivacyLogger.sendKeybindDetail(alertEntry);
-        }
-    }
-    
-    @Unique
-    private static boolean runtimeKeybindsScanned = false;
-    @Unique
-    private static long lastScanTime = 0;
-    
-    @Unique
-    private static void scanRuntimeKeybindsIfNeeded() {
-        long now = System.currentTimeMillis();
-        
-        if (runtimeKeybindsScanned && (now - lastScanTime) < IncognitoConstants.Timeouts.KEYBIND_RESCAN_INTERVAL_MS) {
-            return;
-        }
-        
-        try {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc == null || mc.options == null) return;
-            
-            KeyMapping[] keyMappings = mc.options.keyMappings;
-            if (keyMappings == null) return;
-            
-            int newKeybinds = 0;
-            for (KeyMapping mapping : keyMappings) {
-                if (mapping == null) continue;
-                
-                String keyName = mapping.getName();
-                if (keyName == null) continue;
-                
-                if (KeybindDefaults.hasDefault(keyName) || ModTracker.isKnownKeybind(keyName)) {
-                    continue;
-                }
-                
-                ModTracker.recordKeybind("runtime", keyName);
-                newKeybinds++;
-            }
-            
-            if (!runtimeKeybindsScanned && newKeybinds > 0) {
-                Incognito.LOGGER.info("[Incognito] Runtime scan found {} additional keybinds", newKeybinds);
-            }
-            
-            runtimeKeybindsScanned = true;
-            lastScanTime = now;
-        } catch (RuntimeException e) {
-            Incognito.LOGGER.debug("[Incognito] Runtime keybind scan failed: {}", e.getMessage());
-        }
+        return Component.literal(spoofedValue);
     }
 }

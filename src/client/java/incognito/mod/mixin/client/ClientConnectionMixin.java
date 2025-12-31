@@ -26,6 +26,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static incognito.mod.config.IncognitoConstants.Channels.*;
 
 /**
  * Intercepts and filters outgoing custom payloads for brand spoofing and channel filtering.
@@ -54,10 +57,10 @@ public class ClientConnectionMixin {
     }
     
     @Unique
-    private static boolean incognito$logged = false;
+    private static final AtomicBoolean incognito$logged = new AtomicBoolean(false);
     
     @Unique
-    private boolean incognito$pipelineHandlerInstalled = false;
+    private volatile boolean incognito$pipelineHandlerInstalled = false;
     
     @Unique
     private static final ThreadLocal<Boolean> incognito$sending = ThreadLocal.withInitial(() -> false);
@@ -118,12 +121,12 @@ public class ClientConnectionMixin {
                 String namespace = payloadId.getNamespace();
                 String path = payloadId.getPath();
                 
-                if ("minecraft".equals(namespace) && ("register".equals(path) || "unregister".equals(path))) {
+                if (MINECRAFT.equals(namespace) && (REGISTER.equals(path) || UNREGISTER.equals(path))) {
                     if (payload instanceof RegistrationPayload registrationPayload) {
                         List<ResourceLocation> filtered = registrationPayload.channels().stream()
                             .filter(ch -> {
                                 String ns = ch.getNamespace();
-                                return "fabric".equals(ns) || ns.startsWith("fabric-");
+                                return FABRIC_NAMESPACE.equals(ns) || ns.startsWith(FABRIC_NAMESPACE + "-");
                             })
                             .toList();
                         
@@ -135,7 +138,7 @@ public class ClientConnectionMixin {
                             return;
                         }
                         
-                        RegistrationPayload newPayload = incognito$createRegistrationPayloadStatic(registrationPayload, new ArrayList<>(filtered));
+                        RegistrationPayload newPayload = incognito$createRegistrationPayload(registrationPayload, new ArrayList<>(filtered));
                         if (newPayload != null) {
                             ctx.write(new ServerboundCustomPayloadPacket(newPayload), promise);
                             return;
@@ -145,12 +148,12 @@ public class ClientConnectionMixin {
                     return;
                 }
                 
-                if ("fabric".equals(payloadId.getNamespace()) || payloadId.getNamespace().startsWith("fabric-")) {
+                if (FABRIC_NAMESPACE.equals(payloadId.getNamespace()) || payloadId.getNamespace().startsWith(FABRIC_NAMESPACE + "-")) {
                     ctx.write(msg, promise);
                     return;
                 }
                 
-                if ("minecraft".equals(payloadId.getNamespace())) {
+                if (MINECRAFT.equals(payloadId.getNamespace())) {
                     ctx.write(msg, promise);
                     return;
                 }
@@ -164,17 +167,17 @@ public class ClientConnectionMixin {
                 String namespace = payloadId.getNamespace();
                 String path = payloadId.getPath();
                 
-                if ("minecraft".equals(namespace) && ("register".equals(path) || "unregister".equals(path))) {
+                if (MINECRAFT.equals(namespace) && (REGISTER.equals(path) || UNREGISTER.equals(path))) {
                     if (payload instanceof RegistrationPayload registrationPayload) {
                         List<ResourceLocation> forgeChannels = List.of(
-                            ResourceLocation.parse("forge:login"),
-                            ResourceLocation.parse("forge:handshake")
+                            ResourceLocation.parse(FORGE_NAMESPACE + ":" + LOGIN),
+                            ResourceLocation.parse(FORGE_NAMESPACE + ":" + HANDSHAKE)
                         );
                         
                         Incognito.LOGGER.info("[Incognito] FORGE MODE (pipeline) - Replacing {} channels with forge channels", 
                             registrationPayload.channels().size());
                         
-                        RegistrationPayload forgePayload = incognito$createRegistrationPayloadStatic(registrationPayload, new ArrayList<>(forgeChannels));
+                        RegistrationPayload forgePayload = incognito$createRegistrationPayload(registrationPayload, new ArrayList<>(forgeChannels));
                         if (forgePayload != null) {
                             ctx.write(new ServerboundCustomPayloadPacket(forgePayload), promise);
                             return;
@@ -184,13 +187,13 @@ public class ClientConnectionMixin {
                     return;
                 }
                 
-                if ("forge".equals(namespace) && ("login".equals(path) || "handshake".equals(path))) {
+                if (FORGE_NAMESPACE.equals(namespace) && (LOGIN.equals(path) || HANDSHAKE.equals(path))) {
                     ctx.write(msg, promise);
                     return;
                 }
                 
-                if ("minecraft".equals(namespace)) {
-                    if ("mco".equals(path)) {
+                if (MINECRAFT.equals(namespace)) {
+                    if (MCO.equals(path)) {
                         Incognito.LOGGER.info("[Incognito] FORGE MODE (pipeline) - Blocking minecraft:mco");
                         promise.setSuccess();
                         return;
@@ -208,29 +211,6 @@ public class ClientConnectionMixin {
         }
     }
     
-    @Unique
-    private static RegistrationPayload incognito$createRegistrationPayloadStatic(RegistrationPayload original, List<ResourceLocation> channels) {
-        try {
-            for (Constructor<?> constructor : RegistrationPayload.class.getDeclaredConstructors()) {
-                if (constructor.getParameterCount() == 2) {
-                    constructor.setAccessible(true);
-                    try {
-                        return (RegistrationPayload) constructor.newInstance(original.id(), channels);
-                    } catch (Exception e1) {
-                        try {
-                            return (RegistrationPayload) constructor.newInstance(channels, original.id());
-                        } catch (Exception e2) {
-                            Incognito.LOGGER.debug("[Incognito] Failed parameter order attempt: {}", e2.getMessage());
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Incognito.LOGGER.error("[Incognito] Failed to create RegistrationPayload: {}", e.getMessage(), e);
-        }
-        Incognito.LOGGER.warn("[Incognito] Unable to create RegistrationPayload - no compatible constructor found");
-        return null;
-    }
     
     @Inject(method = "configurePacketHandler", at = @At("TAIL"), require = 0)
     private void onConfigurePacketHandler(CallbackInfo ci) {
@@ -241,8 +221,7 @@ public class ClientConnectionMixin {
     private void onSend(Packet<?> packet, CallbackInfo ci) {
         incognito$ensurePipelineHandler();
         
-        if (!incognito$logged) {
-            incognito$logged = true;
+        if (incognito$logged.compareAndSet(false, true)) {
             Incognito.LOGGER.info("[Incognito] Connection.send mixin active!");
         }
         handleOutgoingPacket(packet, ci, (Connection)(Object)this);
@@ -324,7 +303,7 @@ public class ClientConnectionMixin {
             String namespace = payloadId.getNamespace();
             String path = payloadId.getPath();
             
-            if ("minecraft".equals(namespace) && ("register".equals(path) || "unregister".equals(path))) {
+            if (MINECRAFT.equals(namespace) && (REGISTER.equals(path) || UNREGISTER.equals(path))) {
                 if (payload instanceof RegistrationPayload registrationPayload) {
                     incognito$handleMinecraftRegisterForFabric(registrationPayload, ci, connection);
                 } else {
@@ -335,21 +314,21 @@ public class ClientConnectionMixin {
                 return;
             }
             
-            if ("minecraft".equals(namespace) && "mco".equals(path)) {
+            if (MINECRAFT.equals(namespace) && MCO.equals(path)) {
                 Incognito.LOGGER.info("[Incognito] Blocking minecraft:mco to match stock Fabric");
                 ci.cancel();
                 return;
             }
             
-            if ("minecraft".equals(namespace)) {
+            if (MINECRAFT.equals(namespace)) {
                 return;
             }
             
-            if ("fabric".equals(namespace) || namespace.startsWith("fabric-")) {
+            if (FABRIC_NAMESPACE.equals(namespace) || namespace.startsWith(FABRIC_NAMESPACE + "-")) {
                 return;
             }
             
-            if ("c".equals(namespace)) {
+            if (COMMON.equals(namespace)) {
                 return;
             }
             
@@ -362,7 +341,7 @@ public class ClientConnectionMixin {
             String namespace = payloadId.getNamespace();
             String path = payloadId.getPath();
             
-            if ("minecraft".equals(namespace) && ("register".equals(path) || "unregister".equals(path))) {
+            if (MINECRAFT.equals(namespace) && (REGISTER.equals(path) || UNREGISTER.equals(path))) {
                 if (payload instanceof RegistrationPayload registrationPayload) {
                     incognito$handleMinecraftRegisterForForge(registrationPayload, ci, connection);
                 } else {
@@ -373,17 +352,17 @@ public class ClientConnectionMixin {
                 return;
             }
             
-            if ("forge".equals(namespace) && ("login".equals(path) || "handshake".equals(path))) {
+            if (FORGE_NAMESPACE.equals(namespace) && (LOGIN.equals(path) || HANDSHAKE.equals(path))) {
                 return;
             }
             
-            if ("minecraft".equals(namespace) && "mco".equals(path)) {
+            if (MINECRAFT.equals(namespace) && MCO.equals(path)) {
                 Incognito.LOGGER.info("[Incognito] FORGE MODE - Blocking minecraft:mco");
                 ci.cancel();
                 return;
             }
             
-            if ("minecraft".equals(namespace)) {
+            if (MINECRAFT.equals(namespace)) {
                 return;
             }
             
@@ -399,7 +378,7 @@ public class ClientConnectionMixin {
         List<ResourceLocation> filteredChannels = originalChannels.stream()
             .filter(channel -> {
                 String ns = channel.getNamespace();
-                return "fabric".equals(ns) || ns.startsWith("fabric-");
+                return FABRIC_NAMESPACE.equals(ns) || ns.startsWith(FABRIC_NAMESPACE + "-");
             })
             .toList();
         
@@ -431,8 +410,8 @@ public class ClientConnectionMixin {
         ci.cancel();
         
         List<ResourceLocation> forgeChannels = List.of(
-            ResourceLocation.parse("forge:login"),
-            ResourceLocation.parse("forge:handshake")
+            ResourceLocation.parse(FORGE_NAMESPACE + ":" + LOGIN),
+            ResourceLocation.parse(FORGE_NAMESPACE + ":" + HANDSHAKE)
         );
         
         RegistrationPayload forgePayload = incognito$createRegistrationPayload(original, new ArrayList<>(forgeChannels));

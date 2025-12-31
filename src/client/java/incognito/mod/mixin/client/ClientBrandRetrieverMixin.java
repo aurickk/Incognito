@@ -4,9 +4,12 @@ import incognito.mod.Incognito;
 import incognito.mod.config.IncognitoConfig;
 import net.minecraft.client.ClientBrandRetriever;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Spoofs the client brand at its source.
@@ -14,8 +17,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(ClientBrandRetriever.class)
 public class ClientBrandRetrieverMixin {
     
-    @org.spongepowered.asm.mixin.Unique
-    private static boolean incognito$logged = false;
+    @Unique
+    private static final AtomicBoolean incognito$logged = new AtomicBoolean(false);
     
     @Inject(method = "getClientModName", at = @At("HEAD"), cancellable = true, remap = false)
     private static void onGetClientModName(CallbackInfoReturnable<String> cir) {
@@ -24,8 +27,7 @@ public class ClientBrandRetrieverMixin {
         if (config.shouldSpoofBrand()) {
             String spoofedBrand = config.getSettings().getEffectiveBrand();
             
-            if (!incognito$logged) {
-                incognito$logged = true;
+            if (incognito$logged.compareAndSet(false, true)) {
                 Incognito.LOGGER.info("[Incognito] ClientBrandRetriever active - spoofing brand as: {}", spoofedBrand);
             }
             

@@ -9,6 +9,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 
 import java.net.URI;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -19,7 +21,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Provides methods to notify users of detected tracking attempts and security events.
  */
 public class PrivacyLogger {
-    private static final ConcurrentHashMap<String, Long> toastCooldowns = new ConcurrentHashMap<>();
+    // Bounded LRU cache for toast cooldowns
+    private static final Map<String, Long> toastCooldowns = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+            return size() > IncognitoConstants.Limits.MAX_TOAST_COOLDOWNS;
+        }
+    };
+    private static final Object COOLDOWN_LOCK = new Object();
     
     private static final Set<String> pendingPortScans = ConcurrentHashMap.newKeySet();
     private static final AtomicInteger totalPortScansBlocked = new AtomicInteger(0);
@@ -27,6 +36,7 @@ public class PrivacyLogger {
     
     private static boolean isToastOnCooldown(String cooldownKey, long cooldownMs) {
         long now = System.currentTimeMillis();
+        synchronized (COOLDOWN_LOCK) {
         Long lastToast = toastCooldowns.get(cooldownKey);
         
         if (lastToast != null && (now - lastToast) < cooldownMs) {
@@ -35,10 +45,13 @@ public class PrivacyLogger {
         
         toastCooldowns.put(cooldownKey, now);
         return false;
+        }
     }
     
     public static void clearCooldowns() {
+        synchronized (COOLDOWN_LOCK) {
         toastCooldowns.clear();
+        }
     }
     
     public enum AlertType {
@@ -179,7 +192,11 @@ public class PrivacyLogger {
         logDetection("LocalPack", action + " local URL probe: " + url);
         
         totalPortScansBlocked.incrementAndGet();
+        
+        // Limit size of pending port scans
+        if (pendingPortScans.size() < IncognitoConstants.Limits.MAX_PENDING_PORT_SCANS) {
         pendingPortScans.add(hostPort);
+        }
         
         if (!isToastOnCooldown("localpack_alert", IncognitoConstants.Timeouts.EXPLOIT_TOAST_COOLDOWN_MS)) {
             alert(AlertType.DANGER, "Port scan " + (blocked ? "blocked" : "detected") + ": " + hostPort);

@@ -33,6 +33,9 @@ public class ModTracker {
     /** Vanilla keybind names */
     private static final Set<String> vanillaKeybinds = ConcurrentHashMap.newKeySet();
     
+    /** Server resource pack translation keys (session whitelist - cleared on reconnect) */
+    private static final Set<String> serverPackTranslationKeys = ConcurrentHashMap.newKeySet();
+    
     private static volatile boolean initialized = false;
     
     private ModTracker() {}
@@ -80,6 +83,46 @@ public class ModTracker {
         
         vanillaKeybinds.add(keybindName);
         allKnownKeybinds.add(keybindName);
+    }
+    
+    /**
+     * Record a server resource pack translation key.
+     * These are whitelisted for the session to prevent anti-spoof detection.
+     */
+    public static void recordServerPackTranslationKey(String key) {
+        if (key == null) return;
+        
+        serverPackTranslationKeys.add(key);
+        allKnownTranslationKeys.add(key);
+    }
+    
+    /**
+     * Check if a translation key is from a server resource pack.
+     */
+    public static boolean isServerPackTranslationKey(String key) {
+        return key != null && serverPackTranslationKeys.contains(key);
+    }
+    
+    /**
+     * Clear server pack translation keys. Called on disconnect/reconnect.
+     */
+    public static void clearServerPackKeys() {
+        serverPackTranslationKeys.clear();
+        Incognito.LOGGER.debug("[ModTracker] Cleared server pack translation keys");
+    }
+    
+    /**
+     * Get count of server pack translation keys.
+     */
+    public static int getServerPackKeyCount() {
+        return serverPackTranslationKeys.size();
+    }
+    
+    /**
+     * Get count of vanilla translation keys.
+     */
+    public static int getVanillaKeyCount() {
+        return vanillaTranslationKeys.size();
     }
     
     /**

@@ -21,6 +21,9 @@
 		],
 		"modmenu": [
 			"incognito.mod.config.IncognitoModMenuIntegration"
+		],
+		"mixinsquared": [
+			"incognito.mod.mixin.MeteorMixinCanceller"
 		]
 	},
 	"mixins": [

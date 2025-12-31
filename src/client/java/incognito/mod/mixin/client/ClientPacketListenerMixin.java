@@ -13,6 +13,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -23,12 +26,34 @@ import java.util.concurrent.TimeUnit;
 public abstract class ClientPacketListenerMixin {
     
     @Unique
-    private static final java.util.concurrent.ScheduledExecutorService incognito$scheduler = 
-        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+    private static volatile ScheduledExecutorService incognito$scheduler;
+    
+    @Unique
+    private static volatile ScheduledFuture<?> incognito$pendingTask;
+    
+    @Unique
+    private static synchronized ScheduledExecutorService incognito$getScheduler() {
+        if (incognito$scheduler == null || incognito$scheduler.isShutdown()) {
+            incognito$scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "Incognito-Scheduler");
             t.setDaemon(true);
             return t;
         });
+        }
+        return incognito$scheduler;
+    }
+    
+    @Unique
+    private static synchronized void incognito$shutdownScheduler() {
+        if (incognito$pendingTask != null) {
+            incognito$pendingTask.cancel(false);
+            incognito$pendingTask = null;
+        }
+        if (incognito$scheduler != null && !incognito$scheduler.isShutdown()) {
+            incognito$scheduler.shutdownNow();
+            incognito$scheduler = null;
+        }
+    }
     
     @Inject(method = "handleLogin", at = @At("TAIL"))
     private void onLogin(ClientboundLoginPacket packet, CallbackInfo ci) {
@@ -63,13 +88,14 @@ public abstract class ClientPacketListenerMixin {
         }
         
         // Schedule port scan summary after 2 seconds
-        incognito$scheduler.schedule(() -> {
+        incognito$pendingTask = incognito$getScheduler().schedule(() -> {
             Minecraft.getInstance().execute(PrivacyLogger::showPortScanSummary);
         }, 2, TimeUnit.SECONDS);
     }
     
     @Inject(method = "close", at = @At("HEAD"))
     private void onClose(CallbackInfo ci) {
+        incognito$shutdownScheduler();
         PrivacyLogger.resetPortScanTracking();
         PrivacyLogger.clearCooldowns();
         IncognitoConfig.getInstance().setCurrentServer(null);

@@ -2,6 +2,7 @@ package incognito.mod.util;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import incognito.mod.Incognito;
+import incognito.mod.tracking.ModTracker;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 
@@ -11,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Dynamically extracts keybind defaults from the running client.
+ * Uses vanilla translation keys whitelist to identify vanilla keybinds.
  * Automatically adapts to different Minecraft versions and keybind changes.
  */
 public final class KeybindDefaults {
@@ -22,25 +24,9 @@ public final class KeybindDefaults {
     private static final Set<String> vanillaKeybinds = ConcurrentHashMap.newKeySet();
     private static volatile boolean initialized = false;
     
-    // Vanilla keybind name patterns (keybinds matching these are vanilla)
-    // Vanilla keybinds are simple like "key.forward", "key.attack", "key.hotbar.1"
-    // Mod keybinds typically have prefixes like "key.modname.action"
-    private static final Set<String> VANILLA_KEY_PREFIXES = Set.of(
-        "key.forward", "key.back", "key.left", "key.right",
-        "key.jump", "key.sneak", "key.sprint",
-        "key.attack", "key.use", "key.pickItem",
-        "key.inventory", "key.drop", "key.chat", "key.command",
-        "key.playerlist", "key.screenshot", "key.togglePerspective",
-        "key.smoothCamera", "key.fullscreen", "key.spectatorOutlines",
-        "key.swapOffhand", "key.saveToolbarActivator", "key.loadToolbarActivator",
-        "key.advancements", "key.socialInteractions", "key.quickActions",
-        "key.hotbar.1", "key.hotbar.2", "key.hotbar.3", "key.hotbar.4",
-        "key.hotbar.5", "key.hotbar.6", "key.hotbar.7", "key.hotbar.8", "key.hotbar.9",
-        "key.boss_bar"
-    );
-    
     /**
      * Initialize by scanning all keybinds from the client.
+     * Uses vanilla translation keys whitelist to identify vanilla keybinds.
      * Call this after Minecraft is fully loaded.
      */
     public static void initialize() {
@@ -59,14 +45,12 @@ public final class KeybindDefaults {
                 
                 String keyName = mapping.getName();
                 
-                // Get the DEFAULT key (not the user's current binding)
-                InputConstants.Key defaultKey = mapping.getDefaultKey();
-                String defaultValue = getDisplayName(defaultKey);
-                
-                // Check if this is a vanilla keybind by name
-                boolean isVanilla = isVanillaKeybindName(keyName);
-                
-                if (isVanilla) {
+                // Vanilla keybind = exists in vanilla translation keys whitelist
+                // This whitelist is populated from the minecraft/vanilla language pack
+                if (ModTracker.isVanillaTranslationKey(keyName)) {
+                    InputConstants.Key defaultKey = mapping.getDefaultKey();
+                    String defaultValue = getDisplayName(defaultKey);
+                    
                     vanillaKeybinds.add(keyName);
                     dynamicDefaults.put(keyName, defaultValue);
                     vanillaCount++;
@@ -74,40 +58,11 @@ public final class KeybindDefaults {
             }
             
             initialized = true;
-            Incognito.LOGGER.info("[Incognito] Dynamically loaded {} vanilla keybind defaults", vanillaCount);
+            Incognito.LOGGER.info("[Incognito] Loaded {} vanilla keybind defaults from translation whitelist", vanillaCount);
             
         } catch (RuntimeException e) {
             Incognito.LOGGER.error("[Incognito] Failed to initialize keybind defaults: {}", e.getMessage());
         }
-    }
-    
-    /**
-     * Check if a keybind name is a vanilla keybind.
-     * Vanilla keybinds have simple names without mod prefixes.
-     */
-    private static boolean isVanillaKeybindName(String keyName) {
-        if (keyName == null) return false;
-        
-        // Check exact matches first
-        if (VANILLA_KEY_PREFIXES.contains(keyName)) {
-            return true;
-        }
-        
-        // Vanilla keybinds follow pattern: "key.simplename" (one dot, no mod prefix)
-        // Mod keybinds typically: "key.modname.action" (two+ dots or mod-specific prefix)
-        if (!keyName.startsWith("key.")) {
-            return false;
-        }
-        
-        String afterKey = keyName.substring(4); // Remove "key."
-        
-        // If there's another dot, it's likely a mod keybind (e.g., "key.meteor.zoom")
-        // Exception: "key.hotbar.N" is vanilla
-        if (afterKey.contains(".") && !afterKey.startsWith("hotbar.")) {
-            return false;
-        }
-        
-        return true;
     }
     
     /**

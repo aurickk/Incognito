@@ -9,7 +9,6 @@
 		"ClientPacketListenerMixin",
 		"ClientCommonPacketListenerImplMixin",
 		"ConnectScreenMixin",
-		"MultiPlayerGameModeMixin",
 		"DownloadQueueMixin",
 		"ChannelRegistrationMixin",
 		"FabricPlayNetworkingMixin",
@@ -23,7 +22,11 @@
 		"ClientLanguageMixin",
 		"KeyBindingRegistryImplMixin",
 		"OptionsMixin",
-		"KeybindContentsMixin"
+		"KeybindContentsMixin",
+		"TranslatableContentsMixin",
+		"SignEditScreenMixin",
+		"AnvilScreenMixin",
+		"BookEditScreenMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

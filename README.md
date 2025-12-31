@@ -35,9 +35,7 @@
 
 ## Configurations
 
-The settings menu is accessible via the draggable `Incognito` button in the multiplayer server selection menu or [Mod Menu](https://modrinth.com/mod/modmenu).
-
-<img width="455" height="166" alt="incognito button" src="https://github.com/user-attachments/assets/d5808219-f08a-447b-b01e-81cc1e8e3dab" />
+The settings menu is accessible via the `Incognito` button in the multiplayer server selection menu footer or [Mod Menu](https://modrinth.com/mod/modmenu).
 
 If settings are changed while connected to a server it is recommended to reconnect to the server to ensure changes are applied.
 
@@ -74,11 +72,6 @@ If settings are changed while connected to a server it is recommended to reconne
 - **Resource Pack Fingerprinting Detected**: Suspicious resource pack URL detected
 - **Local URL Scan Detected**: Resource pack attempted to scan local network 
 
-**Alert Types:**
-- **Chat Messages**: Detailed information about what was detected/spoofed
-- **Toast Notifications**: Pop-up alerts in the top-right corner
-- **Console Logs**: Full technical details in the game log
-
 ## Feature Details
 
 ### Brand Spoofing
@@ -110,7 +103,7 @@ When enabled, Incognito spoof mod channels that are registered with the server b
 ---
 
 ### Isolate Pack Cache
-Based on [Meteor Client's fix](https://github.com/MeteorDevelopment/meteor-client/commit/e241e7d555cffe7687a045758ae6b8a9dc05a6e8).
+Based on [LiquidBounce](https://github.com/CCBlueX/LiquidBounce/blob/nextgen/src/main/java/net/ccbluex/liquidbounce/injection/mixins/minecraft/util/MixinDownloadQueue.java).
 
 Server-required resource packs could be used fingerprint client instance across accounts.
 
@@ -134,13 +127,13 @@ Incognito detects resource pack URLs pointing to local/private IP addresses and 
 
 ### Translation Exploit Protection
 
-Servers can send specially crafted text (in books, signs, , anvils, etc) containing translation keys like `key.attack` to probe which keys you have bound. This could reveal the client's installed mods.
+Servers can send specially crafted text (in books, signs, , anvils, etc) containing translation keys like `key.attack` or `key.hide_icons` to probe which keys you have bound or mod UI elements your client can resolve. This can reveal the client's installed mods.
 
 https://wurst.wiki/sign_translation_vulnerability
 
-Incognito intercepts translation lookups for keybind-related keys and returns spoofed default values
+Incognito intercepts translation keys and blocks Minecraft from resolving it while also returning Vanilla default key bind values to appear like a default Vanilla client.
 
-Spoofing mod keybinds (Returns raw translation keys instead of keybind values):
+Spoofing mod keybinds (Returns raw translation keys/fallback instead of keybind values):
 ```
 [key.meteor-client.open-commands] '.'→'key.meteor-client.open-commands'
 [key.meteor-client.open-gui] 'Right Shift'→'key.meteor-client.open-gui'
@@ -155,6 +148,34 @@ Spoofing vanilla keybinds (Returns default keybinds):
 
 ---
 
+### Meteor Fix
+
+Meteor client has their own key protection implementation which can lead to a guaranteed detection with the translation key exploit.
+
+Sometimes the server uses a fallback value so that instead of expecting the raw key from a Vanilla client its expecting the fallback value instead.
+`Key doesn't exist → returns fallbackvalue`
+
+Meteor's key spoofing implementation:
+
+```
+1. When the server sends a sign with {"translate":"key.meteor-client.open-gui", "fallback":"⟦FALLBACK⟧"}:
+2. Meteor intercepts during AbstractSignEditScreen constructor
+3. Detects "meteor-client" in the key
+4. REPLACES the TranslatableTextContent with PlainTextContent.Literal("key.meteor-client.open-gui") to prevent Minecraft from resolving it to key bind values
+```
+
+When the server uses a sign exploit with fallback value on Meteor Client:
+```
+'key.meteor-client.open-gui' 'Right Shift'→'key.meteor-client.open-gui'
+```
+What a Vanilla response would actaully be:
+```
+'key.meteor-client.open-gui' 'Right Shift'→'⟦FALLBACK⟧'
+```
+Icognito's bandaid fix for Meteor is to blacklist the `AbstractSignEditScreenMixin` Mixin to disable Meteor's broken translation protection. Allowing incognito's protection to take over, which already handles fallbacks correctly to match the Vanilla response.
+
+---
+
 ### Chat Signing Control
 
 Based on [No Chat Reports](https://modrinth.com/mod/no-chat-reports).
@@ -162,9 +183,9 @@ Based on [No Chat Reports](https://modrinth.com/mod/no-chat-reports).
 Cryptographic signatures by default are attached to every chat messages. Removing them makes it impossible to track and associate your chat messages with your Minecraft client, and, by extension, Microsoft account.
 
 **Modes:**
-- **Always**: Strip all chat signatures, but prevents you from chatting in servers that enforces secure chat.
+- **OFF**: Strip all chat signatures, but prevents you from chatting in servers that enforces secure chat.
 - **Auto**: Only sign messages when the server enforces secure chat.
-- **Off**: Default Minecraft behavior, signs every messages.
+- **ON**: Default Minecraft behavior, signs every messages.
 
 ---
 
@@ -209,6 +230,7 @@ Output JARs are in `legacy/build/libs/` (1.21.1 - 1.21.8) and `modern/build/libs
 ## References
 
 - [ExploitPreventer](https://github.com/NikOverflow/ExploitPreventer) - Local URL blocking and sign translation protection
-- [Meteor Client](https://github.com/MeteorDevelopment/meteor-client/commit/e241e7d555cffe7687a045758ae6b8a9dc05a6e8) - Cached server resource pack isolation
+- [LiquidBounce](https://github.com/CCBlueX/LiquidBounce/blob/nextgen/src/main/java/net/ccbluex/liquidbounce/injection/mixins/minecraft/util/MixinDownloadQueue.java) - Cached server resource pack isolation
 - [No Chat Reports](https://modrinth.com/mod/no-chat-reports) - Chat signing control and telemetry blocking
 - [No Prying Eyes](https://github.com/Daxanius/NoPryingEyes?tab=readme-ov-file) - Secure chat enforcement detection
+- [MixinBlacklist](https://github.com/ThePotatoArchivist/MixinBlacklist) - Blacklisting Meteor Client's ModDetectionPreventer Mixin

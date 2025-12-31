@@ -14,10 +14,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Adds an Incognito settings button to the multiplayer server list screen.
- * Button is fixed to the top-right of the footer area.
- * 
- * No resize handling needed - init() is called during resize which recreates
- * the button at the correct position.
+ * Button is positioned at the top-right of the footer area.
  */
 @Mixin(JoinMultiplayerScreen.class)
 public abstract class JoinMultiplayerScreenMixin extends Screen {
@@ -26,13 +23,15 @@ public abstract class JoinMultiplayerScreenMixin extends Screen {
     @Unique private static final int BUTTON_HEIGHT = 20;
     @Unique private static final int MARGIN = 7;
     
+    @Unique private Button incognito$settingsButton;
+    
     protected JoinMultiplayerScreenMixin(Component title) {
         super(title);
     }
     
     @Inject(method = "init", at = @At("TAIL"))
     private void incognito$addSettingsButton(CallbackInfo ci) {
-        this.addRenderableWidget(Button.builder(
+        this.incognito$settingsButton = Button.builder(
             Component.literal("Incognito"),
             button -> {
                 if (this.minecraft != null) {
@@ -40,9 +39,26 @@ public abstract class JoinMultiplayerScreenMixin extends Screen {
                 }
             }
         )
-        .bounds(this.width - BUTTON_WIDTH - MARGIN, this.height - 56, BUTTON_WIDTH, BUTTON_HEIGHT)
         .tooltip(Tooltip.create(Component.literal("Open Incognito settings")))
-        .build());
+        .build();
+        
+        incognito$updateButtonPosition();
+        this.addRenderableWidget(this.incognito$settingsButton);
+    }
+    
+    @Inject(method = "repositionElements", at = @At("TAIL"))
+    private void incognito$onRepositionElements(CallbackInfo ci) {
+        incognito$updateButtonPosition();
+    }
+    
+    @Unique
+    private void incognito$updateButtonPosition() {
+        if (this.incognito$settingsButton != null) {
+            this.incognito$settingsButton.setX(this.width - BUTTON_WIDTH - MARGIN);
+            this.incognito$settingsButton.setY(this.height - 56);
+            this.incognito$settingsButton.setWidth(BUTTON_WIDTH);
+            this.incognito$settingsButton.setHeight(BUTTON_HEIGHT);
+        }
     }
 }
 

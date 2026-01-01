@@ -153,6 +153,7 @@ Spoofing vanilla keybinds (Returns default keybinds):
 Meteor client has their own key protection implementation which can lead to a guaranteed detection with the translation key exploit.
 
 Sometimes the server uses a fallback value so that instead of expecting the raw key from a Vanilla client its expecting the fallback value instead.
+
 `Key doesn't exist → returns fallbackvalue`
 
 Meteor's key spoofing implementation:
@@ -172,7 +173,7 @@ What a Vanilla response would actaully be:
 ```
 'key.meteor-client.open-gui' 'Right Shift'→'⟦FALLBACK⟧'
 ```
-Icognito's bandaid fix for Meteor is to blacklist the `AbstractSignEditScreenMixin` Mixin to disable Meteor's broken translation protection. Allowing incognito's protection to take over, which already handles fallbacks correctly to match the Vanilla response.
+Incognito's bandaid fix for Meteor is to blacklist the `AbstractSignEditScreenMixin` Mixin to disable Meteor's broken translation protection. Allowing incognito's protection to take over, which already handles fallbacks correctly to match the Vanilla response.
 
 ---
 

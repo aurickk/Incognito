@@ -55,7 +55,7 @@ If settings are changed while connected to a server it is recommended to reconne
 | **Block Local Pack URLs** | Toggle | Enable/disable [local URL blocking](#block-local-urls) |
 | **Clear Cache** | Button | Delete all cached server resource packs |
 | **Spoof Translation Keys** | Toggle | Enable/disable [translation exploit protection](#translation-exploit-protection) |
-| **Signing Mode** | Dropdown | Configure [chat signing](#chat-signing-control) behavior:<br/>• **Always**: Strip signatures (maximum privacy)<br/>• **Off**: Default Minecraft behavior<br/>• **Auto**: Only sign when required (recommended) |
+| **Signing Mode** | Dropdown | Configure [chat signing](#chat-signing-control) behavior:<br/>• **OFF**: Strip signatures (maximum privacy)<br/>• **ON**: Default Minecraft behavior<br/>• **AUTO**: Only sign when required (recommended) |
 | **Disable Telemetry** | Toggle | Enable/disable [telemetry blocking](#telemetry-blocking) |
 
 #### Misc Tab
